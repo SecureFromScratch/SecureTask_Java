@@ -191,19 +191,7 @@ Open `SecurityConfig.java`. Find the `authorizeHttpRequests` section.
 
 ## Discussions
 
-1. Why is Argon2 considered more secure than BCrypt for password hashing?
-2. What is a mass-assignment vulnerability? Find the line in this codebase that prevents one.
-3. The `countUsers()` check is inside a `@Transactional` method. Why is this important for concurrent registrations?
-4. What does `SameSite=Strict` on a session cookie protect against?
-5. What HTTP status code should an API return when the user is not authenticated? Why not 403?
-6. If you removed `UserResponse` and returned `User` directly from `/api/me`, what would be leaked?
-7. Why does the `/login` endpoint use `application/x-www-form-urlencoded` instead of JSON?
-
----
-
-## Answers
-
-### 1. Why is Argon2 considered more secure than BCrypt for password hashing?
+**Q1: Why is Argon2 considered more secure than BCrypt for password hashing?**
 
 BCrypt was designed in 1999. It is intentionally slow, but it only uses about 4 KB of memory per hash regardless of the cost factor. That limitation matters because modern GPU cards have thousands of cores, and each core can run a BCrypt computation independently — the memory fits easily in a single core's cache. An attacker with a GPU farm can therefore run millions of BCrypt hashes in parallel.
 
@@ -223,9 +211,7 @@ Argon2 also won the Password Hashing Competition in 2015, a public competition s
 
 In short: BCrypt slows the attacker down in time. Argon2 slows them down in both time and memory, which is what defeats GPU-based attacks.
 
----
-
-### 2. What is a mass-assignment vulnerability? Find the line in this codebase that prevents one.
+**Q2: What is a mass-assignment vulnerability? Find the line in this codebase that prevents one.**
 
 A mass-assignment vulnerability occurs when a web framework automatically binds all fields from a client request directly onto a server-side object — including fields the client should never be allowed to set.
 
@@ -247,9 +233,7 @@ public ResponseEntity<?> register(@Valid @RequestBody RegisterRequest request)
 
 `RegisterRequest` only has `username`, `email`, and `password`. There is no `role` field. No matter what JSON the client sends, they cannot influence the role. The role is assigned exclusively in `UserService.register()` based on server-side logic.
 
----
-
-### 3. The `countUsers()` check is inside a `@Transactional` method. Why is this important for concurrent registrations?
+**Q3: The `countUsers()` check is inside a `@Transactional` method. Why is this important for concurrent registrations?**
 
 Without a transaction, two users registering at the exact same millisecond could both run `countUsers()` before either has committed. Both would see `count = 0`, both would be assigned `ADMIN`, and both would save successfully. The database would then contain two admins from the very first registration.
 
@@ -259,9 +243,7 @@ The aborted transaction throws an exception, which the caller catches. Only one 
 
 The `@Transactional(isolation = Isolation.SERIALIZABLE)` annotation on `UserService.register()` is the specific line that enables this protection.
 
----
-
-### 4. What does `SameSite=Strict` on a session cookie protect against?
+**Q4: What does `SameSite=Strict` on a session cookie protect against?**
 
 It protects against **Cross-Site Request Forgery (CSRF)**.
 
@@ -269,24 +251,19 @@ A CSRF attack works by tricking a logged-in user's browser into making a request
 
 With `SameSite=Strict`, the browser will not attach the session cookie to any request that originates from a different site. The forged request arrives without a session cookie and is treated as unauthenticated.
 
-Note that `SameSite=Strict` is a defence-in-depth measure. This application also uses a CSRF token (the `XSRF-TOKEN` cookie read by `api.js`) for the same reason. Lab 03 will explore CSRF in depth.
+`SameSite=Strict` is a defence-in-depth measure. This application also uses a CSRF token (the `XSRF-TOKEN` cookie read by `api.js`) for the same reason. Lab 03 explores CSRF in depth.
 
----
-
-### 5. What HTTP status code should an API return when the user is not authenticated? Why not 403?
+**Q5: What HTTP status code should an API return when the user is not authenticated? Why not 403?**
 
 An API should return **401 Unauthorized** when the user is not authenticated.
-
-The distinction:
 
 | Code | Meaning | Use when |
 |------|---------|----------|
 | 401 | Unauthenticated — we do not know who you are | No valid session or token was provided |
 | 403 | Forbidden — we know who you are, but you are not allowed | User is logged in but lacks permission |
 
-Returning 403 for an unauthenticated request is misleading. It tells the client "you are forbidden" when the real problem is "we don't know who you are." A client that receives 401 knows it should prompt the user to log in. A client that receives 403 knows the user is logged in but lacks the required role.
+Returning 403 for an unauthenticated request is misleading — it tells the client "you are forbidden" when the real problem is "we don't know who you are." A client that receives 401 knows it should prompt the user to log in. A client that receives 403 knows the user is logged in but lacks the required role. In `SecurityConfig.java`:
 
-In `SecurityConfig.java` this is configured with:
 ```java
 .defaultAuthenticationEntryPointFor(
     new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED),
@@ -294,11 +271,9 @@ In `SecurityConfig.java` this is configured with:
 )
 ```
 
-Without this, Spring Security's default behaviour is to redirect API requests to the login page — which returns 302 and breaks API clients that expect JSON.
+Without this, Spring Security's default is to redirect API requests to the login page, returning 302 and breaking API clients that expect JSON.
 
----
-
-### 6. If you removed `UserResponse` and returned `User` directly from `/api/me`, what would be leaked?
+**Q6: If you removed `UserResponse` and returned `User` directly from `/api/me`, what would be leaked?**
 
 The `User` entity has a `passwordHash` field. Jackson (the JSON serializer) would include every field with a public getter in the response. The `/api/me` response would become:
 
@@ -313,13 +288,11 @@ The `User` entity has a `passwordHash` field. Jackson (the JSON serializer) woul
 }
 ```
 
-Even though the value is a hash and not the original password, leaking it is dangerous. An attacker who obtains the hash can run an offline brute-force attack against it at their own pace, without any rate limiting or account lockout from your server.
+Even though the value is a hash and not the original password, leaking it is dangerous. An attacker who obtains the hash can run an offline brute-force attack at their own pace, with no rate limiting or account lockout from your server.
 
 `UserResponse` solves this by simply not having a `passwordHash` field. Jackson can only serialize fields that exist on the object it is given. There is no annotation trick required — the data is structurally absent.
 
----
-
-### 7. Why does the `/login` endpoint use `application/x-www-form-urlencoded` instead of JSON?
+**Q7: Why does the `/login` endpoint use `application/x-www-form-urlencoded` instead of JSON?**
 
 Spring Security's built-in form login handler (`UsernamePasswordAuthenticationFilter`) expects credentials as URL-encoded form parameters — `username=alice&password=secret` — not as a JSON body. This is the format browsers use when submitting an HTML `<form>`.
 

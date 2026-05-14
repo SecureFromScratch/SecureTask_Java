@@ -202,19 +202,7 @@ curl -b admin-cookies.txt -X PATCH \
 
 ## Discussions
 
-1. What is the difference between authentication and authorization?
-2. Why is `@PreAuthorize` placed on the service method rather than only on the controller?
-3. What is vertical privilege escalation? Give an example using this codebase.
-4. Why can't an admin change their own role? What attack does this guard against?
-5. The caller's username comes from `Authentication`, not from the request body. Why does this matter?
-6. What HTTP status code is returned when an authenticated user calls an admin endpoint without the ADMIN role? Why not 401?
-7. What would happen if `@EnableMethodSecurity` were removed from `SecurityConfig`?
-
----
-
-## Answers
-
-### 1. What is the difference between authentication and authorization?
+**Q1: What is the difference between authentication and authorization?**
 
 Authentication answers _who are you?_ — it verifies identity, typically via a username and password. The result is a known principal (a logged-in user).
 
@@ -222,19 +210,19 @@ Authorization answers _what are you allowed to do?_ — it checks whether the au
 
 Authentication must happen before authorization. You cannot make a meaningful access decision about someone whose identity you have not yet verified.
 
-### 2. Why is `@PreAuthorize` placed on the service method rather than only on the controller?
+**Q2: Why is `@PreAuthorize` placed on the service method rather than only on the controller?**
 
 A URL-based rule in `SecurityConfig` (`.requestMatchers("/api/admin/**").hasRole("ADMIN")`) only protects routes that go through the HTTP layer. If someone adds a second controller that calls `AdminService` directly, or a scheduled job calls the service, the URL rule is never evaluated.
 
 `@PreAuthorize` on the service method is enforced by Spring AOP regardless of who calls the method. The authorization check travels with the code, not with the route. It cannot be bypassed by adding a new entry point.
 
-### 3. What is vertical privilege escalation? Give an example using this codebase.
+**Q3: What is vertical privilege escalation? Give an example using this codebase.**
 
 Vertical privilege escalation is when a lower-privileged user accesses functionality reserved for a higher-privileged role.
 
 In this codebase: a `VIEWER` sending `GET /api/admin/users`. Without `@PreAuthorize`, the endpoint would return the full user list to anyone who is authenticated, regardless of role. With `@PreAuthorize("hasRole('ADMIN')")`, the call is rejected with 403 before the service method body executes.
 
-### 4. Why can't an admin change their own role? What attack does this guard against?
+**Q4: Why can't an admin change their own role? What attack does this guard against?**
 
 If an admin account is compromised, an attacker might try to:
 1. Demote all other admins to VIEWER (removing their ability to revoke access).
@@ -242,13 +230,13 @@ If an admin account is compromised, an attacker might try to:
 
 The self-change guard breaks step 2. A compromised admin account cannot re-grant itself ADMIN privileges after a security team downgrades it. It also prevents accidental self-lockout — an admin cannot accidentally demote themselves to VIEWER and lose all administrative access.
 
-### 5. The caller's username comes from `Authentication`, not from the request body. Why does this matter?
+**Q5: The caller's username comes from `Authentication`, not from the request body. Why does this matter?**
 
 `Authentication` is populated by Spring Security from the server-side session. The client cannot forge or modify it — the session token is opaque, and the server controls what identity it maps to.
 
 If the caller's identity came from the request body (e.g., `{"callerUsername": "admin", "targetId": 5}`), any client could claim to be any user. A VIEWER could send `callerUsername: admin` and bypass the self-escalation guard or impersonate an admin entirely.
 
-### 6. What HTTP status code is returned when an authenticated user calls an admin endpoint without the ADMIN role? Why not 401?
+**Q6: What HTTP status code is returned when an authenticated user calls an admin endpoint without the ADMIN role? Why not 401?**
 
 `403 Forbidden`. The distinction:
 
@@ -257,7 +245,7 @@ If the caller's identity came from the request body (e.g., `{"callerUsername": "
 
 Returning 401 for a role failure misleads the client into thinking re-authenticating would solve the problem. It would not — the user's role is set at registration time.
 
-### 7. What would happen if `@EnableMethodSecurity` were removed from `SecurityConfig`?
+**Q7: What would happen if `@EnableMethodSecurity` were removed from `SecurityConfig`?**
 
 `@PreAuthorize` annotations would be silently ignored. Spring would not create the AOP proxy that intercepts method calls and evaluates the expression. Every call to `AdminService.listAllUsers()` and `AdminService.changeUserRole()` would succeed regardless of the caller's role.
 

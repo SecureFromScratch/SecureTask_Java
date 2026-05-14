@@ -309,19 +309,7 @@ Open `CsrfCookieFilter.java`. Notice that `getToken()` is the only call — it f
 
 ## Discussions
 
-1. What is a CSRF attack? Describe the sequence of events from the attacker's perspective.
-2. Why can an attacker's HTML form submit a request with the victim's session cookie, but not include the correct `X-XSRF-TOKEN` header?
-3. What is the synchronizer token pattern? How does it defeat CSRF?
-4. Why does `SameSite=Strict` on the session cookie not make the CSRF token redundant?
-5. Explain the purpose of `CsrfCookieFilter`. What bug would occur without it?
-6. Why is `XSRF-TOKEN` set to `HttpOnly=false` while `JSESSIONID` is `HttpOnly=true`?
-7. Does listing `/api/register` in `permitAll()` bypass CSRF protection? Why or why not?
-
----
-
-## Answers
-
-### 1. What is a CSRF attack? Describe the sequence of events from the attacker's perspective.
+**Q1: What is a CSRF attack? Describe the sequence of events from the attacker's perspective.**
 
 1. The attacker identifies a state-changing request the victim's application accepts — for example, `PATCH /api/admin/users/2/role` to change a user's role.
 2. The attacker hosts a page at `evil.example.com` containing a hidden form or JavaScript that sends that request.
@@ -331,9 +319,7 @@ Open `CsrfCookieFilter.java`. Notice that `getToken()` is the only call — it f
 
 The attacker never sees the response. They do not need to. The goal is to trigger the action, not to read the result.
 
----
-
-### 2. Why can an attacker's HTML form submit a request with the victim's session cookie, but not include the correct `X-XSRF-TOKEN` header?
+**Q2: Why can an attacker's HTML form submit a request with the victim's session cookie, but not include the correct `X-XSRF-TOKEN` header?**
 
 **Cookies** are attached by the browser automatically, controlled by the browser's cookie policy, not by the page's code. Any page can trigger a request that carries the target domain's cookies — this is by design for legitimate cross-site navigation.
 
@@ -341,9 +327,7 @@ The attacker never sees the response. They do not need to. The goal is to trigge
 
 HTML forms also cannot set arbitrary headers — only standard fields like `Content-Type` in a limited set. So a cross-origin form submission will never include `X-XSRF-TOKEN`.
 
----
-
-### 3. What is the synchronizer token pattern? How does it defeat CSRF?
+**Q3: What is the synchronizer token pattern? How does it defeat CSRF?**
 
 The server generates a random, unpredictable token and gives it to the legitimate client (here: via the `XSRF-TOKEN` cookie). On every state-changing request, the client must echo the token back (here: via the `X-XSRF-TOKEN` header). The server checks that the submitted token matches the one it issued for that session.
 
@@ -353,9 +337,7 @@ An attacker cannot forge this echo because:
 
 The token acts as proof that the request was initiated by code running on the legitimate page.
 
----
-
-### 4. Why does `SameSite=Strict` on the session cookie not make the CSRF token redundant?
+**Q4: Why does `SameSite=Strict` on the session cookie not make the CSRF token redundant?**
 
 `SameSite=Strict` instructs the browser to not send the session cookie on any cross-site request. This defeats the standard CSRF attack. However:
 
@@ -365,9 +347,7 @@ The token acts as proof that the request was initiated by code running on the le
 
 Defence-in-depth: both protections together provide redundancy when either one fails.
 
----
-
-### 5. Explain the purpose of `CsrfCookieFilter`. What bug would occur without it?
+**Q5: Explain the purpose of `CsrfCookieFilter`. What bug would occur without it?**
 
 Spring Security 6 uses deferred CSRF token loading. The token is generated lazily — the `XSRF-TOKEN` cookie is only written into the response when something explicitly reads the token object. For `GET` requests (which don't need CSRF validation), the token is never read, so the cookie is never set or refreshed.
 
@@ -375,9 +355,7 @@ Without `CsrfCookieFilter`, the `XSRF-TOKEN` cookie would not be present when a 
 
 `CsrfCookieFilter` calls `csrfToken.getToken()` on every request, which forces the lazy resolution and ensures the cookie is always written in the response — so the first state-changing request always has a valid token available.
 
----
-
-### 6. Why is `XSRF-TOKEN` set to `HttpOnly=false` while `JSESSIONID` is `HttpOnly=true`?
+**Q6: Why is `XSRF-TOKEN` set to `HttpOnly=false` while `JSESSIONID` is `HttpOnly=true`?**
 
 `HttpOnly=true` prevents JavaScript from reading the cookie. This is the right setting for the session cookie — XSS code on the page should not be able to steal the session identifier.
 
@@ -388,9 +366,7 @@ The XSRF-TOKEN cookie being readable by JavaScript is not a security problem bec
 - An attacker on another origin still cannot read it — the same-origin policy prevents cross-origin JavaScript from accessing another domain's cookies, regardless of the `HttpOnly` flag.
 - XSS can read it, but XSS can also make requests directly without needing the CSRF token — so losing the CSRF token to XSS does not add meaningful new capability to the attacker.
 
----
-
-### 7. Does listing `/api/register` in `permitAll()` bypass CSRF protection? Why or why not?
+**Q7: Does listing `/api/register` in `permitAll()` bypass CSRF protection? Why or why not?**
 
 No. `permitAll()` is part of the **authorization** filter — it determines whether an authenticated session is required. The **CSRF filter** (`CsrfFilter`) runs earlier in the filter chain, before authorization is evaluated.
 
