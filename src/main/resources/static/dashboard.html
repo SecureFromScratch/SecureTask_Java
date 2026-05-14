@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard – SecureTask</title>
+    <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+    <div class="container">
+        <div class="dashboard-header">
+            <h1>Dashboard</h1>
+            <button id="logout-btn" style="background:none;border:1px solid #ccc;border-radius:4px;padding:.3rem .8rem;cursor:pointer;">Log out</button>
+        </div>
+
+        <div class="user-card" id="user-card">
+            <p>Loading…</p>
+        </div>
+
+        <div style="margin-top:1.5rem;">
+            <a href="/webhooks.html" style="color:#0066cc;font-size:.95rem;">→ Webhooks — manage callback URLs</a>
+        </div>
+
+        <div id="admin-panel-link" style="display:none; margin-top:.75rem;">
+            <a href="/admin.html" style="color:#0066cc;font-size:.95rem;">→ Admin Panel — manage users and roles</a>
+        </div>
+    </div>
+    <script src="/js/dom.js"></script>
+    <script src="/js/api.js"></script>
+    <script src="/js/auth.js"></script>
+    <script>
+        (async () => {
+            const user = await requireAuth();
+            if (!user) { return; }
+
+            const card = document.getElementById("user-card");
+            card.textContent = "";
+
+            // Use textContent for all user-controlled strings to prevent XSS.
+            function addRow(label, value) {
+                const p = document.createElement("p");
+                const strong = document.createElement("strong");
+                strong.textContent = label + ": ";
+                p.appendChild(strong);
+                p.appendChild(document.createTextNode(value));
+                card.appendChild(p);
+            }
+
+            addRow("Username", user.username);
+            addRow("Email", user.email);
+
+            const roleBadge = document.createElement("p");
+            const strong = document.createElement("strong");
+            strong.textContent = "Role: ";
+            const badge = document.createElement("span");
+            badge.className = "badge";
+            badge.textContent = user.role;
+            roleBadge.appendChild(strong);
+            roleBadge.appendChild(badge);
+            card.appendChild(roleBadge);
+
+            addRow("Member since", new Date(user.createdAt).toLocaleDateString());
+
+            // Show the admin panel link only for ADMIN users.
+            // The server enforces the actual access control — this is UX only.
+            if (user.role === "ADMIN") {
+                document.getElementById("admin-panel-link").style.display = "block";
+            }
+        })();
+
+        document.getElementById("logout-btn").addEventListener("click", handleLogout);
+    </script>
+</body>
+</html>

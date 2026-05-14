@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Webhooks – SecureTask</title>
+    <link rel="stylesheet" href="/css/styles.css">
+    <style>
+        .webhooks-container {
+            max-width: 860px;
+            margin: 40px auto;
+            padding: 2rem;
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .page-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            font-size: .9rem;
+            color: #555;
+        }
+
+        .back-link {
+            font-size: .85rem;
+            color: #0066cc;
+            text-decoration: none;
+        }
+
+        .back-link:hover { text-decoration: underline; }
+
+        #logout-btn {
+            background: none;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            padding: .3rem .8rem;
+            cursor: pointer;
+            font-size: .85rem;
+        }
+
+        .register-form {
+            display: flex;
+            gap: .5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .register-form input {
+            flex: 1;
+            padding: .5rem .75rem;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: .9rem;
+        }
+
+        .register-form input:focus {
+            outline: 2px solid #0066cc;
+            border-color: transparent;
+        }
+
+        .add-btn {
+            padding: .5rem 1.1rem;
+            background: #0066cc;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            font-size: .9rem;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        .add-btn:hover { background: #0052a3; }
+        .add-btn:disabled { background: #999; cursor: not-allowed; }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: .9rem;
+        }
+
+        th {
+            text-align: left;
+            padding: .5rem .75rem;
+            background: #f0f0f0;
+            border-bottom: 2px solid #ddd;
+            font-weight: 600;
+        }
+
+        td {
+            padding: .5rem .75rem;
+            border-bottom: 1px solid #eee;
+            vertical-align: middle;
+        }
+
+        tr:last-child td { border-bottom: none; }
+
+        .url-cell {
+            max-width: 340px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-family: monospace;
+            font-size: .82rem;
+        }
+
+        .status-cell {
+            min-width: 180px;
+            font-size: .82rem;
+            color: #555;
+        }
+
+        .status-ok   { color: #1a6630; font-weight: 600; }
+        .status-blocked { color: #b00; font-weight: 600; }
+        .status-err  { color: #888; }
+
+        .action-btn {
+            padding: .28rem .65rem;
+            border: none;
+            border-radius: 4px;
+            font-size: .82rem;
+            cursor: pointer;
+            margin-right: .3rem;
+        }
+
+        .test-btn {
+            background: #e8f0ff;
+            color: #0044aa;
+            border: 1px solid #b3c8f0;
+        }
+
+        .test-btn:hover { background: #d0e0ff; }
+        .test-btn:disabled { opacity: .55; cursor: not-allowed; }
+
+        .delete-btn {
+            background: #fde8e8;
+            color: #b00;
+            border: 1px solid #f5c6c6;
+        }
+
+        .delete-btn:hover { background: #fad0d0; }
+        .delete-btn:disabled { opacity: .55; cursor: not-allowed; }
+
+        .empty-row td {
+            color: #888;
+            font-style: italic;
+            text-align: center;
+            padding: 1.5rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="webhooks-container">
+        <div class="page-header">
+            <h1>Webhooks</h1>
+            <div class="header-right">
+                <a href="/dashboard.html" class="back-link">← Dashboard</a>
+                <span id="current-username"></span>
+                <button id="logout-btn">Log out</button>
+            </div>
+        </div>
+
+        <div class="register-form">
+            <input type="text" id="url-input" placeholder="https://example.com/hook" autocomplete="off">
+            <button class="add-btn" id="add-btn">Add webhook</button>
+        </div>
+
+        <div id="message" class="message" style="display:none;"></div>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>URL</th>
+                    <th>Added</th>
+                    <th>Last test</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="webhooks-tbody">
+                <tr class="empty-row"><td colspan="4">Loading…</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <script src="/js/dom.js"></script>
+    <script src="/js/api.js"></script>
+    <script src="/js/auth.js"></script>
+    <script src="/js/webhooks.js"></script>
+</body>
+</html>
