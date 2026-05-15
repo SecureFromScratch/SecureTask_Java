@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tasks – SecureTask</title>
+    <link rel="stylesheet" href="/css/styles.css">
+    <style>
+        .tasks-container {
+            max-width: 860px;
+            margin: 40px auto;
+            padding: 2rem;
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .page-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            font-size: .9rem;
+            color: #555;
+        }
+
+        .back-link {
+            font-size: .85rem;
+            color: #0066cc;
+            text-decoration: none;
+        }
+
+        .back-link:hover { text-decoration: underline; }
+
+        #logout-btn {
+            background: none;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            padding: .3rem .8rem;
+            cursor: pointer;
+            font-size: .85rem;
+        }
+
+        .create-form {
+            display: flex;
+            flex-direction: column;
+            gap: .5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .create-form input,
+        .create-form textarea {
+            padding: .5rem .75rem;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: .9rem;
+            font-family: inherit;
+        }
+
+        .create-form input:focus,
+        .create-form textarea:focus {
+            outline: 2px solid #0066cc;
+            border-color: transparent;
+        }
+
+        .create-form textarea {
+            resize: vertical;
+            min-height: 60px;
+        }
+
+        .add-btn {
+            align-self: flex-start;
+            padding: .5rem 1.1rem;
+            background: #0066cc;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            font-size: .9rem;
+            cursor: pointer;
+        }
+
+        .add-btn:hover { background: #0052a3; }
+        .add-btn:disabled { background: #999; cursor: not-allowed; }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: .9rem;
+        }
+
+        th {
+            text-align: left;
+            padding: .5rem .75rem;
+            background: #f0f0f0;
+            border-bottom: 2px solid #ddd;
+            font-weight: 600;
+        }
+
+        td {
+            padding: .5rem .75rem;
+            border-bottom: 1px solid #eee;
+            vertical-align: middle;
+        }
+
+        tr:last-child td { border-bottom: none; }
+
+        .title-cell {
+            max-width: 240px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .desc-cell {
+            max-width: 200px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            color: #555;
+            font-size: .85rem;
+        }
+
+        .status-select {
+            padding: .25rem .4rem;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: .82rem;
+            cursor: pointer;
+        }
+
+        .action-btn {
+            padding: .28rem .65rem;
+            border: none;
+            border-radius: 4px;
+            font-size: .82rem;
+            cursor: pointer;
+        }
+
+        .delete-btn {
+            background: #fde8e8;
+            color: #b00;
+            border: 1px solid #f5c6c6;
+        }
+
+        .delete-btn:hover { background: #fad0d0; }
+        .delete-btn:disabled { opacity: .55; cursor: not-allowed; }
+
+        .empty-row td {
+            color: #888;
+            font-style: italic;
+            text-align: center;
+            padding: 1.5rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="tasks-container">
+        <div class="page-header">
+            <h1>Tasks</h1>
+            <div class="header-right">
+                <a href="/dashboard.html" class="back-link">← Dashboard</a>
+                <span id="current-username"></span>
+                <button id="logout-btn">Log out</button>
+            </div>
+        </div>
+
+        <div class="create-form">
+            <input type="text" id="title-input" placeholder="Task title (required)" autocomplete="off" maxlength="200">
+            <textarea id="desc-input" placeholder="Description (optional)" maxlength="2000"></textarea>
+            <button class="add-btn" id="add-btn">Add task</button>
+        </div>
+
+        <div id="message" class="message" style="display:none;"></div>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Title</th>
+                    <th>Description</th>
+                    <th>Status</th>
+                    <th>Created</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="tasks-tbody">
+                <tr class="empty-row"><td colspan="5">Loading…</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <script src="/js/dom.js"></script>
+    <script src="/js/api.js"></script>
+    <script src="/js/auth.js"></script>
+    <script src="/js/tasks.js"></script>
+</body>
+</html>

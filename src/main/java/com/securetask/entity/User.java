@@ -36,6 +36,10 @@ public class User {
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<Webhook> webhooks = new ArrayList<>();
 
+    // Cascade ensures tasks are deleted when their owner is deleted.
+    @OneToMany(mappedBy = "owner", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<Task> tasks = new ArrayList<>();
+
     public User() {}
 
     public Long getId() { return id; }

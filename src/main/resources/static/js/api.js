@@ -85,4 +85,12 @@ const api = {
         delete: (id) => apiRequest("DELETE", `/api/webhooks/${id}`),
         test: (id) => apiRequest("POST", `/api/webhooks/${id}/test`),
     },
+
+    tasks: {
+        list: () => apiRequest("GET", "/api/tasks"),
+        create: (title, description) => apiRequest("POST", "/api/tasks", { title, description }),
+        update: (id, title, description, status) =>
+            apiRequest("PUT", `/api/tasks/${id}`, { title, description, status }),
+        delete: (id) => apiRequest("DELETE", `/api/tasks/${id}`),
+    },
 };
