@@ -23,7 +23,7 @@ services:
     image: localstack/localstack:3.4
     restart: unless-stopped
     environment:
-      SERVICES: secretsmanager
+      SERVICES: secretsmanager,s3
       DEFAULT_REGION: us-east-1
       AWS_DEFAULT_REGION: us-east-1
       # Allow the init script to run on first start.
@@ -34,7 +34,7 @@ services:
       - ./localstack/init:/etc/localstack/init/ready.d
       - localstack_data:/var/lib/localstack
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:4566/_localstack/health | grep -q '\"secretsmanager\"'"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:4566/_localstack/health | grep -q 'running'"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -55,6 +55,7 @@ services:
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
       SECRETS_MANAGER_ENDPOINT: http://localstack:4566
+      S3_ENDPOINT: http://localstack:4566
       DB_SECRET_NAME: securetask/db-docker
 
 volumes:

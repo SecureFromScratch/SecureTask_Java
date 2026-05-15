@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Profile – SecureTask</title>
+    <link rel="stylesheet" href="/css/styles.css">
+    <style>
+        .profile-container {
+            max-width: 480px;
+            margin: 60px auto;
+            padding: 2rem;
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .profile-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+        }
+
+        .back-link {
+            font-size: .85rem;
+            color: #0066cc;
+            text-decoration: none;
+        }
+
+        .back-link:hover { text-decoration: underline; }
+
+        /* Avatar */
+        .avatar-section {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .avatar-wrapper {
+            position: relative;
+            width: 110px;
+            height: 110px;
+        }
+
+        #avatar-img {
+            width: 110px;
+            height: 110px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 3px solid #e0e0e0;
+            display: none;
+        }
+
+        .avatar-initials {
+            width: 110px;
+            height: 110px;
+            border-radius: 50%;
+            background: #0066cc;
+            color: #fff;
+            font-size: 2.2rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .avatar-actions {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: .4rem;
+        }
+
+        .upload-label {
+            display: inline-block;
+            padding: .4rem 1rem;
+            background: #0066cc;
+            color: #fff;
+            border-radius: 4px;
+            font-size: .85rem;
+            cursor: pointer;
+        }
+
+        .upload-label:hover { background: #0052a3; }
+
+        #avatar-file-input { display: none; }
+
+        .remove-link {
+            font-size: .8rem;
+            color: #999;
+            cursor: pointer;
+            background: none;
+            border: none;
+            text-decoration: underline;
+        }
+
+        .remove-link:hover { color: #b00; }
+
+        /* Storage badge */
+        .storage-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: .35rem;
+            font-size: .75rem;
+            padding: .2rem .55rem;
+            border-radius: 12px;
+            font-weight: 500;
+        }
+
+        .storage-badge.local {
+            background: #f0f0f0;
+            color: #555;
+        }
+
+        .storage-badge.s3 {
+            background: #fff3cd;
+            color: #7a5000;
+        }
+
+        /* Profile info */
+        .profile-info {
+            border-top: 1px solid #eee;
+            padding-top: 1.5rem;
+        }
+
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            padding: .5rem 0;
+            font-size: .9rem;
+            border-bottom: 1px solid #f5f5f5;
+        }
+
+        .info-row:last-child { border-bottom: none; }
+
+        .info-label {
+            color: #888;
+        }
+
+        .info-value {
+            font-weight: 500;
+        }
+
+        #upload-msg {
+            font-size: .82rem;
+            min-height: 1.1em;
+        }
+
+        #upload-msg.error { color: #b00; }
+        #upload-msg.success { color: #2d7a2d; }
+    </style>
+</head>
+<body>
+    <div class="profile-container">
+        <div class="profile-header">
+            <h1>Profile</h1>
+            <a href="/dashboard.html" class="back-link">← Dashboard</a>
+        </div>
+
+        <div class="avatar-section">
+            <div class="avatar-wrapper">
+                <img id="avatar-img" src="/api/profile/avatar" alt="Avatar">
+                <div id="avatar-initials" class="avatar-initials"></div>
+            </div>
+
+            <div class="avatar-actions">
+                <label class="upload-label" for="avatar-file-input">
+                    Upload photo
+                </label>
+                <input type="file" id="avatar-file-input" accept=".png,.jpg,.jpeg,.gif,.webp">
+                <button id="remove-avatar-btn" class="remove-link" style="display:none;">Remove photo</button>
+                <div id="upload-msg"></div>
+                <div id="storage-badge-container"></div>
+            </div>
+        </div>
+
+        <div class="profile-info" id="profile-info">
+            <p>Loading…</p>
+        </div>
+    </div>
+
+    <script src="/js/dom.js"></script>
+    <script src="/js/api.js"></script>
+    <script src="/js/auth.js"></script>
+    <script>
+        let currentProfile = null;
+
+        async function loadProfile() {
+            const res = await api.profile.get();
+            if (!res.ok) {
+                window.location.href = "/login.html";
+                return;
+            }
+            currentProfile = res.data;
+            renderProfile(res.data);
+        }
+
+        function renderProfile(profile) {
+            // Avatar
+            const img = document.getElementById("avatar-img");
+            const initials = document.getElementById("avatar-initials");
+            const removeBtn = document.getElementById("remove-avatar-btn");
+
+            if (profile.hasAvatar) {
+                img.src = "/api/profile/avatar?t=" + Date.now();
+                img.style.display = "block";
+                initials.style.display = "none";
+                removeBtn.style.display = "inline";
+            } else {
+                img.style.display = "none";
+                initials.textContent = profile.username.charAt(0).toUpperCase();
+                initials.style.display = "flex";
+                removeBtn.style.display = "none";
+            }
+
+            // Storage backend indicator
+            const badgeContainer = document.getElementById("storage-badge-container");
+            badgeContainer.textContent = "";
+            if (profile.storageBackend) {
+                const badge = document.createElement("span");
+                badge.className = "storage-badge " + (profile.storageBackend === "s3" ? "s3" : "local");
+                badge.textContent = profile.storageBackend === "s3" ? "☁ S3 cloud storage" : "💾 Local storage";
+                badgeContainer.appendChild(badge);
+            }
+
+            // Info rows
+            const infoDiv = document.getElementById("profile-info");
+            infoDiv.textContent = "";
+
+            function addRow(label, value) {
+                const row = document.createElement("div");
+                row.className = "info-row";
+                const lbl = document.createElement("span");
+                lbl.className = "info-label";
+                lbl.textContent = label;
+                const val = document.createElement("span");
+                val.className = "info-value";
+                val.textContent = value;
+                row.appendChild(lbl);
+                row.appendChild(val);
+                infoDiv.appendChild(row);
+            }
+
+            addRow("Username", profile.username);
+            addRow("Email", profile.email);
+            addRow("Role", profile.role);
+            addRow("Member since", new Date(profile.createdAt).toLocaleDateString());
+        }
+
+        async function handleAvatarUpload(file) {
+            const msgEl = document.getElementById("upload-msg");
+            msgEl.textContent = "Uploading…";
+            msgEl.className = "";
+
+            const fd = new FormData();
+            fd.append("file", file);
+            const res = await apiUpload("/api/profile/avatar", fd);
+
+            if (res.ok) {
+                msgEl.textContent = "Photo updated.";
+                msgEl.className = "success";
+                renderProfile(res.data);
+            } else {
+                const err = (res.data && res.data.error) || "Upload failed.";
+                msgEl.textContent = err;
+                msgEl.className = "error";
+            }
+        }
+
+        async function handleRemoveAvatar() {
+            const msgEl = document.getElementById("upload-msg");
+            msgEl.textContent = "";
+            const res = await apiRequest("DELETE", "/api/profile/avatar");
+            if (res.ok) {
+                renderProfile(res.data);
+            }
+        }
+
+        document.getElementById("avatar-file-input").addEventListener("change", (e) => {
+            const file = e.target.files[0];
+            if (file) { handleAvatarUpload(file); }
+        });
+
+        document.getElementById("remove-avatar-btn").addEventListener("click", handleRemoveAvatar);
+
+        loadProfile();
+    </script>
+</body>
+</html>

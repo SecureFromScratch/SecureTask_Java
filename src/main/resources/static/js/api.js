@@ -44,6 +44,35 @@ async function apiRequest(method, path, body) {
     }
 }
 
+/**
+ * Sends a multipart/form-data upload and returns { ok, status, data }.
+ * Does NOT set Content-Type — the browser sets it automatically with the correct
+ * multipart boundary when the body is a FormData object.
+ */
+async function apiUpload(path, formData) {
+    const headers = {};
+    const token = getCsrfToken();
+    if (token) {
+        headers["X-XSRF-TOKEN"] = token;
+    }
+    try {
+        const response = await fetch(path, {
+            method: "POST",
+            headers,
+            credentials: "same-origin",
+            body: formData,
+        });
+        let data = null;
+        const ct = response.headers.get("Content-Type") || "";
+        if (ct.includes("application/json")) {
+            data = await response.json();
+        }
+        return { ok: response.ok, status: response.status, data };
+    } catch (err) {
+        return { ok: false, status: 0, data: { error: "Network error" } };
+    }
+}
+
 const api = {
     register: (username, email, password) =>
         apiRequest("POST", "/api/register", { username, email, password }),
@@ -92,5 +121,22 @@ const api = {
         update: (id, title, description, status) =>
             apiRequest("PUT", `/api/tasks/${id}`, { title, description, status }),
         delete: (id) => apiRequest("DELETE", `/api/tasks/${id}`),
+    },
+
+    profile: {
+        get:          ()     => apiRequest("GET",    "/api/profile"),
+        deleteAvatar: ()     => apiRequest("DELETE", "/api/profile/avatar"),
+    },
+
+    attachments: {
+        list:     (taskId)       => apiRequest("GET", `/api/tasks/${taskId}/attachments`),
+        upload:   (taskId, file) => {
+            const fd = new FormData();
+            fd.append("file", file);
+            return apiUpload(`/api/tasks/${taskId}/attachments`, fd);
+        },
+        // Returns a URL string for direct use in <a href> — the browser handles the download.
+        download: (taskId, id)   => `/api/tasks/${taskId}/attachments/${id}`,
+        delete:   (taskId, id)   => apiRequest("DELETE", `/api/tasks/${taskId}/attachments/${id}`),
     },
 };

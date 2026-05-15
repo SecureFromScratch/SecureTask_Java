@@ -74,6 +74,12 @@
             min-height: 60px;
         }
 
+        .create-form-row {
+            display: flex;
+            align-items: center;
+            gap: .75rem;
+        }
+
         .add-btn {
             align-self: flex-start;
             padding: .5rem 1.1rem;
@@ -157,6 +163,93 @@
             text-align: center;
             padding: 1.5rem;
         }
+
+        /* Attachment panel */
+        .attachment-row td {
+            background: #f9f9f9;
+            padding: .75rem 1rem;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .attachment-panel {
+            display: flex;
+            flex-direction: column;
+            gap: .6rem;
+        }
+
+        .attachment-upload {
+            display: flex;
+            align-items: center;
+            gap: .5rem;
+            flex-wrap: wrap;
+        }
+
+        .file-input {
+            font-size: .82rem;
+        }
+
+        .upload-btn {
+            background: #e8f0fe;
+            color: #1a5cc8;
+            border: 1px solid #b3c9f5;
+        }
+
+        .upload-btn:hover { background: #d0e3fb; }
+        .upload-btn:disabled { opacity: .55; cursor: not-allowed; }
+
+        .attach-btn {
+            background: #f0f7f0;
+            color: #2d7a2d;
+            border: 1px solid #b3d9b3;
+            margin-right: .3rem;
+        }
+
+        .attach-btn:hover { background: #dff0df; }
+
+        .upload-msg {
+            font-size: .82rem;
+        }
+
+        .upload-msg.error { color: #b00; }
+        .upload-msg.success { color: #2d7a2d; }
+
+        .attachment-list {
+            font-size: .85rem;
+        }
+
+        .attachment-items {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            gap: .3rem;
+        }
+
+        .attachment-item {
+            display: flex;
+            align-items: center;
+            gap: .5rem;
+        }
+
+        .attachment-link {
+            color: #0066cc;
+        }
+
+        .attachment-size {
+            color: #888;
+        }
+
+        .attachment-remove-btn {
+            padding: .18rem .5rem;
+            font-size: .78rem;
+        }
+
+        .no-attachments {
+            margin: 0;
+            color: #888;
+            font-style: italic;
+        }
     </style>
 </head>
 <body>
@@ -173,7 +266,10 @@
         <div class="create-form">
             <input type="text" id="title-input" placeholder="Task title (required)" autocomplete="off" maxlength="200">
             <textarea id="desc-input" placeholder="Description (optional)" maxlength="2000"></textarea>
-            <button class="add-btn" id="add-btn">Add task</button>
+            <div class="create-form-row">
+                <input type="file" id="create-file-input" accept=".png,.jpg,.jpeg,.gif,.webp,.pdf">
+                <button class="add-btn" id="add-btn">Add task</button>
+            </div>
         </div>
 
         <div id="message" class="message" style="display:none;"></div>
@@ -197,6 +293,7 @@
     <script src="/js/dom.js"></script>
     <script src="/js/api.js"></script>
     <script src="/js/auth.js"></script>
+    <script src="/js/attachments.js"></script>
     <script src="/js/tasks.js"></script>
 </body>
 </html>

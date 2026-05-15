@@ -14,6 +14,7 @@ Each lab builds on the previous one and introduces a new class of security vulne
 | 03 | CSRF protection | [walkthroughs/03-csrf.md](walkthroughs/03-csrf.md) |
 | 04 | SSRF prevention | [walkthroughs/04-ssrf.md](walkthroughs/04-ssrf.md) |
 | 05 | Input validation and XSS prevention | [walkthroughs/05-xss-validation.md](walkthroughs/05-xss-validation.md) |
+| 06 | Secure file upload | [walkthroughs/06-file-upload.md](walkthroughs/06-file-upload.md) |
 
 ---
 

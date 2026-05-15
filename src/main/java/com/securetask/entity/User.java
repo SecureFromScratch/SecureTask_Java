@@ -40,6 +40,14 @@ public class User {
     @OneToMany(mappedBy = "owner", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<Task> tasks = new ArrayList<>();
 
+    // UUID storage key for the user's avatar — null when no avatar has been uploaded.
+    @Column(length = 255)
+    private String avatarKey;
+
+    // MIME type detected from magic bytes at upload time — null when no avatar has been uploaded.
+    @Column(length = 100)
+    private String avatarContentType;
+
     public User() {}
 
     public Long getId() { return id; }
@@ -57,4 +65,10 @@ public class User {
     public void setRole(Role role) { this.role = role; }
 
     public Instant getCreatedAt() { return createdAt; }
+
+    public String getAvatarKey() { return avatarKey; }
+    public void setAvatarKey(String avatarKey) { this.avatarKey = avatarKey; }
+
+    public String getAvatarContentType() { return avatarContentType; }
+    public void setAvatarContentType(String avatarContentType) { this.avatarContentType = avatarContentType; }
 }

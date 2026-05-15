@@ -30,9 +30,10 @@ dependencies {
     // PostgreSQL driver
     runtimeOnly 'org.postgresql:postgresql'
 
-    // AWS SDK v2 for Secrets Manager
+    // AWS SDK v2 for Secrets Manager and S3
     implementation platform('software.amazon.awssdk:bom:2.26.12')
     implementation 'software.amazon.awssdk:secretsmanager'
+    implementation 'software.amazon.awssdk:s3'
 
     // JSON parsing for the secret value
     implementation 'com.fasterxml.jackson.core:jackson-databind'
