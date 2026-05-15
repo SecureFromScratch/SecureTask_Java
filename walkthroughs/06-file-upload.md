@@ -11,103 +11,91 @@ By the end of this lab you will be able to:
 5. Apply the same IDOR ownership check pattern (404-for-both) to attachment download and delete endpoints.
 6. Configure a file size limit to prevent resource exhaustion.
 7. Explain why a private S3 bucket is a required complement to UUID storage keys.
+8. Explain why IAM least-privilege is a separate, required layer on top of Block Public Access.
 
 ---
 
-## Background
+## Overview
 
-### Path traversal via malicious filenames
+This lab covers file upload security in two distinct parts:
+
+| Part | Feature | Storage | Security topics |
+|------|---------|---------|----------------|
+| **Part A** | Task attachments | Local filesystem | Path traversal, magic bytes, webroot access, Content-Disposition, IDOR, size limit |
+| **Part B** | Profile avatar | S3 (LocalStack) | Bucket public access, IAM least-privilege, credential isolation |
+
+The two backends run simultaneously. `AttachmentService` is wired to `LocalFileStorageService`; `ProfileService` is wired to `S3FileStorageService`. Part A teaches the fundamentals that apply to any storage backend. Part B adds the cloud-specific risks that only arise with S3.
+
+---
+
+## Part A — Local file upload (task attachments)
+
+### Background
+
+#### Path traversal via malicious filenames
 
 When a server stores a file using the name the client provides, an attacker can submit a filename like `../../etc/passwd` or `../../../webroot/malicious.jsp`. The server resolves the path relative to the upload directory and writes the file to an arbitrary location.
 
 **Fix:** generate a UUID as the storage key; keep the original filename only in the database for display. The storage layer never sees the user-supplied name.
 
-### Unrestricted file types
+#### Unrestricted file types
 
 Checking the `Content-Type` header (`multipartFile.getContentType()`) is not a security control — the header is supplied by the client and can be set to any string. Checking the file extension is similarly trivial to bypass: rename `malicious.jsp` to `harmless.jpg`.
 
 **Fix:** read the first bytes of the file content and compare them against known magic byte sequences. A `.jsp` file renamed to `.jpg` will not have JPEG magic bytes (`FF D8 FF`), so it is rejected.
 
-### Direct webroot access
+#### Direct webroot access
 
 If uploaded files are placed under `src/main/resources/static/`, Spring Boot serves them at a public URL with no authentication. An attacker who knows (or guesses) the filename can download any uploaded file directly.
 
-**Fix:** store files outside the webroot (local filesystem or S3). Serve them only through an authenticated controller that verifies ownership before returning the file.
+**Fix:** store files outside the webroot (local `uploads/` directory). Serve them only through an authenticated controller that verifies ownership before returning the file.
 
-### Missing Content-Disposition
+#### Missing Content-Disposition
 
 When a browser receives a file with `Content-Type: text/html` and no `Content-Disposition` header, it renders the file inline — executing any JavaScript in the HTML. This allows stored XSS via an uploaded HTML or SVG file even when the file type check is correct.
 
 **Fix:** always set `Content-Disposition: attachment` on the download response. The browser will save the file to disk rather than render it.
 
-### IDOR on download/delete
+#### IDOR on download/delete
 
 If the download or delete endpoint fetches any attachment by ID without checking that it belongs to the requesting user's task, an attacker can access or delete any attachment by guessing or iterating IDs.
 
 **Fix:** `findByIdAndTask(id, task)` — where `task` is already verified to belong to the current user. Non-owner gets 404 for both "not found" and "wrong owner", preventing ID enumeration.
 
-### No file size limit
+#### No file size limit
 
 Without a size limit, a single upload can exhaust disk space or heap memory. Spring Boot's multipart limit and an application-level pre-check together cap the upload at 5 MB.
 
-### S3 bucket public access
-
-Storing a file outside the webroot and behind an authenticated endpoint protects it from direct HTTP access — **but only if the S3 bucket itself is also private**. If the bucket allows public reads, any object can be fetched directly using the storage URL, completely bypassing the application's authentication and ownership checks:
-
-```
-# Anyone can fetch this if the bucket is public:
-http://s3.amazonaws.com/securetask-uploads/4d032540-e454-424b-afdc-23c7eef6195e
-```
-
-The UUID key makes the URL hard to *guess*, but it is not a secret: it appears in server access logs, browser history, `Referer` headers, and CDN logs. Obscurity is not access control.
-
-**Fix:** enable Block Public Access on the bucket. All reads must go through the application endpoint (`/api/profile/avatar`, `/api/tasks/{id}/attachments/{id}`) which enforces authentication. LocalStack does not enforce bucket ACLs by default, so direct URL access works locally — this is intentional for the exercise below.
-
-### IAM least-privilege and credential isolation
-
-Block Public Access stops anonymous requests. It does not stop someone who has valid AWS credentials with `s3:GetObject` permission — they can call the S3 API directly using the SDK and bypass the application's ownership checks entirely.
-
-The defences at this layer are:
-
-- **Credential isolation:** AWS credentials (or an IAM role) live only on the application server. End users never receive them. The browser communicates with the app API, not with S3 directly.
-- **Least-privilege policy:** only the app's IAM identity has `s3:PutObject`, `s3:GetObject`, and `s3:DeleteObject` on `securetask-uploads/*`. No other user, role, or service has access.
-- **IAM roles over static keys:** in production the app runs on EC2/ECS/Lambda and receives temporary credentials automatically via the instance metadata service. There is no long-lived access key to steal from a config file or environment variable.
-
-LocalStack supports IAM but does not enforce it by default. Setting `ENFORCE_IAM=1` in the LocalStack environment enables policy evaluation so this can be simulated locally (see Step 9).
-
 ---
 
-## Relevant files
+### Relevant files (Part A)
 
 | File | Role |
 |------|------|
 | `entity/Attachment.java` | `id`, `task`, `originalFilename`, `storageKey`, `contentType`, `fileSize`, `uploadedAt` |
 | `repository/AttachmentRepository.java` | `findByTask`, `findByIdAndTask` |
 | `dto/AttachmentResponse.java` | Exposed fields — **no `storageKey`** |
-| `service/FileTypeValidator.java` | Magic bytes check |
+| `service/FileTypeValidator.java` | Magic bytes check — shared by both parts |
 | `service/FileStorageService.java` | Interface: `store`, `load`, `delete` |
-| `service/LocalFileStorageService.java` | Local filesystem backend (default) |
-| `service/S3FileStorageService.java` | S3 backend (`upload.storage=s3`) |
+| `service/LocalFileStorageService.java` | Local filesystem backend — used by task attachments |
 | `service/AttachmentService.java` | Business logic, ownership checks |
-| `controller/AttachmentController.java` | REST endpoints |
-| `config/S3ClientConfig.java` | `S3Client` bean (only when `upload.storage=s3`) |
-| `localstack/init/02-create-s3-bucket.sh` | Creates `securetask-uploads` bucket on LocalStack startup |
+| `controller/AttachmentController.java` | `POST/GET/GET/{id}/DELETE /api/tasks/{taskId}/attachments` |
 | `src/main/resources/static/js/attachments.js` | Attachment UI (upload, list, delete, download link) |
 
 ---
 
-## Vulnerable patterns (do not use)
+### Vulnerable patterns (do not use)
 
-### (a) Original filename as storage path
+#### (a) Original filename as storage path
 
 ```java
 // VULNERABLE — path traversal
-String filename = file.getOriginalFilename();           // attacker controls this
-Path dest = uploadDir.resolve(filename);               // resolves ../../etc/passwd
+String filename = file.getOriginalFilename();     // attacker controls this
+Path dest = uploadDir.resolve(filename);          // resolves ../../etc/passwd
 Files.copy(file.getInputStream(), dest);
 ```
 
-### (b) Trusting the Content-Type header
+#### (b) Trusting the Content-Type header
 
 ```java
 // VULNERABLE — client-controlled, not a security boundary
@@ -118,14 +106,14 @@ if (!type.startsWith("image/")) {
 // A .jsp file with Content-Type: image/jpeg passes this check.
 ```
 
-### (c) Storing files in the webroot
+#### (c) Storing files in the webroot
 
 ```java
 // VULNERABLE — every uploaded file is publicly accessible at /uploads/<filename>
 Path dest = Paths.get("src/main/resources/static/uploads").resolve(storageKey);
 ```
 
-### (d) Serving without Content-Disposition
+#### (d) Serving without Content-Disposition
 
 ```java
 // VULNERABLE — browser renders HTML/SVG inline, executing any embedded scripts
@@ -136,9 +124,9 @@ return ResponseEntity.ok()
 
 ---
 
-## How the fix works
+### How the fix works (Part A)
 
-### UUID storage key
+#### UUID storage key
 
 ```java
 // AttachmentService.upload()
@@ -148,9 +136,9 @@ fileStorageService.store(new ByteArrayInputStream(bytes), storageKey, detectedTy
 ```
 
 - `storageKey` is a random UUID — no path components, no file extension.
-- `safeName` strips path separators but is only stored in the database and returned to the client for display; it never influences where the file is written.
+- `safeName` strips path separators but is only stored in the database for display; it never influences where the file is written.
 
-### Magic bytes validation
+#### Magic bytes validation
 
 ```java
 // FileTypeValidator.validate(byte[])
@@ -164,9 +152,9 @@ if (bytes.length >= 8
 throw new InvalidFileTypeException("File type not allowed. Accepted: PNG, JPEG, GIF, WebP, PDF");
 ```
 
-`MultipartFile.getBytes()` buffers the full file content before the check. A `.jsp` file renamed to `.jpg` does not start with `FF D8 FF`, so it is rejected regardless of the file extension or the `Content-Type` header.
+`MultipartFile.getBytes()` buffers the full file content before the check. A `.jsp` file renamed to `.jpg` does not start with `FF D8 FF`, so it is rejected regardless of file extension or `Content-Type` header.
 
-### Outside webroot + authenticated download
+#### Outside webroot + authenticated download
 
 `LocalFileStorageService` writes to `${upload.local.directory:uploads}` (relative to the working directory, outside the static resource path). There is no URL that maps to that directory.
 
@@ -175,7 +163,7 @@ Files are only accessible via `GET /api/tasks/{taskId}/attachments/{id}`, which:
 2. Verifies task ownership before loading the file.
 3. Sets `Content-Disposition: attachment`.
 
-### Content-Disposition
+#### Content-Disposition
 
 ```java
 return ResponseEntity.ok()
@@ -190,9 +178,9 @@ return ResponseEntity.ok()
 
 ---
 
-## Step-by-step guide
+### Step-by-step guide (Part A)
 
-### Step 1 — Upload a valid PNG
+#### Step 1 — Upload a valid PNG
 
 Start the app (see README). Log in and open Tasks. Click **Attachments** on any task row.
 
@@ -205,7 +193,7 @@ uploads/
   3f4a1b2c-...  ← UUID, no extension
 ```
 
-### Step 2 — Attempt path traversal via filename
+#### Step 2 — Attempt path traversal via filename
 
 Use curl to submit a file with a malicious name:
 
@@ -218,7 +206,7 @@ curl -b "JSESSIONID=<your-session>; XSRF-TOKEN=<token>" \
 
 Inspect the `uploads/` directory — the file is stored as a UUID, not as `../../evil.txt`. The original filename is sanitized and stored only in the database for display.
 
-### Step 3 — Attempt to upload a disallowed file type
+#### Step 3 — Attempt to upload a disallowed file type
 
 Rename a text file or `.jsp` file to `.jpg`:
 
@@ -235,7 +223,7 @@ Try to upload `payload.jpg`. The server reads the magic bytes, finds no JPEG sig
 
 The `Content-Type: image/jpeg` header from the browser's form submission is ignored.
 
-### Step 4 — Confirm the magic bytes check catches a renamed Java class
+#### Step 4 — Confirm the magic bytes check catches a renamed Java class
 
 A Java `.class` file starts with `CA FE BA BE`. Rename one:
 
@@ -245,7 +233,7 @@ cp MyClass.class fake.png
 
 Try to upload `fake.png`. The server reads `CA FE BA BE`, finds no PNG signature, and rejects it with 422.
 
-### Step 5 — Verify download requires authentication and ownership
+#### Step 5 — Verify download requires authentication and ownership
 
 Download one of Alice's attachments while logged in as Alice — succeeds, file is downloaded.
 
@@ -253,7 +241,7 @@ Try the same URL while unauthenticated — returns **401**.
 
 Log in as Bob and request Alice's attachment URL — returns **404** (same response for "not found" and "wrong owner").
 
-### Step 6 — Confirm Content-Disposition: attachment
+#### Step 6 — Confirm Content-Disposition: attachment
 
 Download an attachment with curl:
 
@@ -268,30 +256,90 @@ The response includes:
 Content-Disposition: attachment; filename="photo.png"
 ```
 
-Without this header, a browser would render an HTML or SVG file inline.
+Without this header, a browser would render an uploaded HTML or SVG file inline.
 
-### Step 7 — Switch to S3 storage (optional)
+---
 
-Start LocalStack with s3 enabled (it is now enabled in `docker-compose.yml`). Then run:
+## Part B — Cloud file upload (profile avatar, S3)
+
+### Background
+
+#### Why S3 instead of local storage
+
+Profile avatars are stored in S3 rather than the local filesystem. This introduces a new class of risk: the storage layer is now a network service with its own access control model, separate from the application's authentication. Fixing the application is not enough — the bucket itself must also be configured securely.
+
+#### S3 bucket public access
+
+Storing a file behind an authenticated endpoint protects it from direct HTTP access — **but only if the S3 bucket itself is also private**. If the bucket allows public reads, any object can be fetched directly using the storage URL, completely bypassing the application's authentication and ownership checks:
+
+```
+# Anyone can fetch this if the bucket is public:
+http://s3.amazonaws.com/securetask-uploads/4d032540-e454-424b-afdc-23c7eef6195e
+```
+
+The UUID key makes the URL hard to *guess*, but it is not a secret: it appears in server access logs, browser history, `Referer` headers, and CDN logs. Obscurity is not access control.
+
+**Fix:** enable Block Public Access on the bucket. All reads must go through the application endpoint (`/api/profile/avatar`) which enforces authentication. LocalStack does not enforce bucket ACLs by default, so direct URL access works locally — this is intentional for Step 8.
+
+#### IAM least-privilege and credential isolation
+
+Block Public Access stops anonymous requests. It does not stop someone who has valid AWS credentials with `s3:GetObject` permission — they can call the S3 API directly using the SDK and bypass the application's ownership checks entirely.
+
+The defences at this layer are:
+
+- **Credential isolation:** AWS credentials (or an IAM role) live only on the application server. End users never receive them. The browser communicates with the app API, not with S3 directly.
+- **Least-privilege policy:** only the app's IAM identity has `s3:PutObject`, `s3:GetObject`, and `s3:DeleteObject` on `securetask-uploads/*`. No other user, role, or service has access.
+- **IAM roles over static keys:** in production the app runs on EC2/ECS/Lambda and receives temporary credentials automatically via the instance metadata service. There is no long-lived access key to steal from a config file or environment variable.
+
+LocalStack supports IAM but does not enforce it by default. Setting `ENFORCE_IAM=1` enables policy evaluation so this can be simulated locally (see Step 9).
+
+---
+
+### Relevant files (Part B)
+
+| File | Role |
+|------|------|
+| `entity/User.java` | `avatarKey` (UUID), `avatarContentType` (magic-detected) |
+| `dto/ProfileResponse.java` | `hasAvatar`, `storageBackend` — no `avatarKey` |
+| `service/FileTypeValidator.java` | Magic bytes check — shared with Part A |
+| `service/S3FileStorageService.java` | S3 backend — used by profile avatar |
+| `service/ProfileService.java` | Avatar upload, download, delete |
+| `controller/ProfileController.java` | `GET/POST /api/profile/avatar`, `DELETE /api/profile/avatar` |
+| `config/S3ClientConfig.java` | `S3Client` bean — endpoint override for LocalStack |
+| `localstack/init/02-create-s3-bucket.sh` | Creates `securetask-uploads` bucket on LocalStack startup |
+| `src/main/resources/static/profile.html` | Profile page with avatar upload UI |
+
+---
+
+### Step-by-step guide (Part B)
+
+#### Step 7 — Upload a profile avatar to S3
+
+Make sure LocalStack is running (`docker compose up -d localstack`) and start the app with:
 
 ```bash
-UPLOAD_STORAGE=s3 \
+AWS_REGION=us-east-1 \
+AWS_ACCESS_KEY_ID=test \
+AWS_SECRET_ACCESS_KEY=test \
+SECRETS_MANAGER_ENDPOINT=http://localhost:4566 \
 S3_ENDPOINT=http://localhost:4566 \
-S3_BUCKET_NAME=securetask-uploads \
+DB_SECRET_NAME=securetask/db \
 ./gradlew bootRun
 ```
 
-Upload and download attachments — behaviour is identical, but files are stored in the LocalStack S3 bucket instead of the local filesystem.
+Log in and open the Profile page. Upload a PNG image as your avatar.
 
-### Step 8 — Observe direct S3 access (LocalStack only)
-
-Upload a profile avatar via the Profile page. When the upload succeeds, the app stores the file in the `securetask-uploads` bucket under a UUID key. Find the key:
+List the bucket contents to see the stored object:
 
 ```bash
 docker exec securetask_java-localstack-1 awslocal s3 ls s3://securetask-uploads --recursive
 ```
 
-Then fetch the object directly — no authentication, no session cookie:
+The file appears as a UUID with no extension — same principle as local storage, different backend.
+
+#### Step 8 — Observe direct S3 access (LocalStack only)
+
+Find the UUID from the listing above, then fetch it directly with no session cookie:
 
 ```
 http://localhost:4566/securetask-uploads/<uuid>
@@ -304,9 +352,9 @@ The file downloads immediately. LocalStack does not enforce bucket ACLs, so this
 - The browser's download history
 - Any `Referer` header sent when the avatar image is embedded on a page
 
-A private bucket (`Block Public Access` enabled) is the only control that closes this. With a private bucket, the direct URL returns 403 — the only way to get the file is through the app's `/api/profile/avatar` endpoint, which requires authentication.
+A private bucket (`Block Public Access` enabled) is the only control that closes this. With a private bucket, the direct URL returns 403 — the only way to get the file is through `/api/profile/avatar`, which requires authentication.
 
-### Step 9 — Simulate IAM enforcement (LocalStack)
+#### Step 9 — Simulate IAM enforcement (LocalStack)
 
 This step demonstrates that Block Public Access + IAM policy together prevent SDK-level access from unauthorised credentials.
 
@@ -401,14 +449,23 @@ curl -b "JSESSIONID=<session>" http://localhost:8080/api/profile/avatar
 
 ## Manual test checklist
 
+**Part A — Local (task attachments)**
 - [ ] Upload valid PNG → 201, stored as UUID in `uploads/`
 - [ ] Upload renamed `.jsp` as `.jpg` → 422 (magic bytes mismatch)
-- [ ] Upload with path-traversal filename → 201, storage key is a UUID (no traversal)
+- [ ] Upload with path-traversal filename → 201, storage key is UUID (no traversal)
 - [ ] Download own attachment → 200 + `Content-Disposition: attachment`
 - [ ] Download another user's attachment → 404
 - [ ] Delete own attachment → 204
 - [ ] Delete another user's attachment → 404
 - [ ] Unauthenticated upload → 401
+
+**Part B — S3 (profile avatar)**
+- [ ] Upload PNG avatar → 200, object appears in `securetask-uploads` bucket as UUID
+- [ ] Fetch object directly via LocalStack URL → downloads without auth (bucket is public by default)
+- [ ] Enable Block Public Access → direct URL returns 403
+- [ ] Enable `ENFORCE_IAM=1` + wrong credentials → SDK call returns 403
+- [ ] App API (`/api/profile/avatar`) still works after IAM enforcement enabled
+
 - [ ] Run `./gradlew test` → all tests pass
 
 ---
@@ -417,7 +474,7 @@ curl -b "JSESSIONID=<session>" http://localhost:8080/api/profile/avatar
 
 | Action | HTTP status | Reason |
 |--------|-------------|--------|
-| Upload valid PNG (authenticated, own task) | 201 | Normal |
+| Upload valid PNG to task (authenticated, own task) | 201 | Normal |
 | Upload renamed JSP as JPG | 422 | Magic bytes mismatch |
 | Upload with `../../evil` filename | 201 | Storage key is UUID — traversal defused |
 | Upload to another user's task | 404 | Task not found for this owner |
@@ -427,6 +484,9 @@ curl -b "JSESSIONID=<session>" http://localhost:8080/api/profile/avatar
 | Unauthenticated download | 401 | Spring Security |
 | Delete own attachment | 204 | Normal |
 | Delete another user's attachment | 404 | Ownership check |
+| Direct S3 URL (public bucket) | 200 | No auth required — bucket is open |
+| Direct S3 URL (Block Public Access on) | 403 | Bucket-level control |
+| SDK call with wrong credentials (IAM enforced) | 403 | IAM policy |
 
 ---
 
@@ -448,13 +508,13 @@ Without this header, a browser will render an uploaded HTML or SVG file inline i
 Even with a valid file type, an attacker can upload a 2 GB file. Both the Spring multipart limit (`spring.servlet.multipart.max-file-size`) and `file.isEmpty()` / `file.getBytes()` length check defend against this.
 
 **6. Exposing `storageKey` in the API response.**  
-The UUID storage key is an internal detail. If leaked, it reveals the internal storage structure and could be used to enumerate files if the storage layer is misconfigured. `AttachmentResponse` omits `storageKey` deliberately.
+The UUID storage key is an internal detail. If leaked, it reveals the internal storage structure and could be used to enumerate files if the storage layer is misconfigured. `AttachmentResponse` and `ProfileResponse` both omit the storage key deliberately.
 
 **7. Assuming the UUID storage key is a secret.**  
-A UUID key is unguessable, but it is not secret: it is logged, cached, and referenced in browser history every time the file is accessed. A public S3 bucket combined with a leaked UUID URL exposes the file to anyone. The UUID defends against *enumeration* (sequential IDs); it does not defend against *disclosure* after the URL is observed. A private bucket is required for confidentiality.
+A UUID key is unguessable, but it is not secret: it is logged, cached, and referenced in browser history every time the file is accessed. A public S3 bucket combined with a leaked UUID URL exposes the file to anyone. The UUID defends against *enumeration*; it does not defend against *disclosure* after the URL is observed. A private bucket is required for confidentiality.
 
 **8. Not cleaning up storage files when a task is deleted.**  
-The `@OneToMany(cascade=ALL, orphanRemoval=true)` on `Task.attachments` cleans up `Attachment` records from the database when a task is deleted, but does not clean up the physical files from local storage or S3. In production, you would need to intercept task deletion (e.g., in `TaskService.delete()`) to also call `fileStorageService.delete()` for each attachment's storage key before deleting the task.
+The `@OneToMany(cascade=ALL, orphanRemoval=true)` on `Task.attachments` cleans up `Attachment` records from the database when a task is deleted, but does not clean up the physical files from local storage or S3. In production, `TaskService.delete()` would need to call `fileStorageService.delete()` for each attachment's storage key before deleting the task.
 
 ---
 
@@ -482,7 +542,7 @@ JPA cascades operate on entity state managed by the persistence context. They ca
 
 **Q6: The app runs two `FileStorageService` implementations simultaneously — one local, one S3. How does Spring know which one to inject where?**
 
-Both `LocalFileStorageService` and `S3FileStorageService` implement `FileStorageService`. Spring cannot resolve the dependency by type alone when two beans of the same type exist. Each service is declared with an explicit bean name (`@Service("localFileStorageService")` and `@Service("s3FileStorageService")`), and each injection site uses `@Qualifier` to name the one it needs: `AttachmentService` requests `"localFileStorageService"` and `ProfileService` requests `"s3FileStorageService"`. This pattern deliberately keeps both backends active at the same time so that task attachments (local) and profile avatars (S3) can demonstrate different storage characteristics in the same running application — a teaching contrast that a single-backend design would not provide.
+Both `LocalFileStorageService` and `S3FileStorageService` implement `FileStorageService`. Spring cannot resolve the dependency by type alone when two beans of the same type exist. Each service is declared with an explicit bean name (`@Service("localFileStorageService")` and `@Service("s3FileStorageService")`), and each injection site uses `@Qualifier` to name the one it needs: `AttachmentService` requests `"localFileStorageService"` and `ProfileService` requests `"s3FileStorageService"`. This pattern deliberately keeps both backends active at the same time so that task attachments (local) and profile avatars (S3) demonstrate different storage characteristics in the same running application — a teaching contrast that a single-backend design would not provide.
 
 **Q7: In the test suite, `@MockBean FileStorageService` replaces the real storage implementation. What would break if you instead tested with the real `LocalFileStorageService`?**
 
