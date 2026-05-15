@@ -37,6 +37,14 @@ public class Task {
     @Column(nullable = false)
     private Instant updatedAt = Instant.now();
 
+    // Set by the server when status transitions to DONE; cleared on any other status.
+    @Column
+    private Instant completedAt;
+
+    // Admin-only flag — pinned tasks sort to the top of the owner's list.
+    @Column(nullable = false)
+    private boolean pinned = false;
+
     public Long getId() { return id; }
 
     public User getOwner() { return owner; }
@@ -55,4 +63,10 @@ public class Task {
 
     public Instant getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(Instant updatedAt) { this.updatedAt = updatedAt; }
+
+    public Instant getCompletedAt() { return completedAt; }
+    public void setCompletedAt(Instant completedAt) { this.completedAt = completedAt; }
+
+    public boolean isPinned() { return pinned; }
+    public void setPinned(boolean pinned) { this.pinned = pinned; }
 }

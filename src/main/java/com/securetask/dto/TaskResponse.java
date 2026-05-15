@@ -14,6 +14,8 @@ public class TaskResponse {
     private Long ownerId;
     private Instant createdAt;
     private Instant updatedAt;
+    private Instant completedAt;
+    private boolean pinned;
 
     public static TaskResponse from(Task task) {
         TaskResponse r = new TaskResponse();
@@ -24,6 +26,8 @@ public class TaskResponse {
         r.ownerId = task.getOwner().getId();
         r.createdAt = task.getCreatedAt();
         r.updatedAt = task.getUpdatedAt();
+        r.completedAt = task.getCompletedAt();
+        r.pinned = task.isPinned();
         return r;
     }
 
@@ -34,4 +38,6 @@ public class TaskResponse {
     public Long getOwnerId() { return ownerId; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
+    public Instant getCompletedAt() { return completedAt; }
+    public boolean isPinned() { return pinned; }
 }

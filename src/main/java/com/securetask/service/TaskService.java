@@ -33,6 +33,7 @@ public class TaskService {
         task.setOwner(owner);
         task.setTitle(request.getTitle());
         task.setDescription(request.getDescription());
+        task.setPinned(request.isPinned());
         return TaskResponse.from(taskRepository.save(task));
     }
 
@@ -54,6 +55,10 @@ public class TaskService {
         task.setTitle(request.getTitle());
         task.setDescription(request.getDescription());
         task.setStatus(request.getStatus());
+        // VULNERABLE: completedAt and pinned are taken directly from the request.
+        // Any user can backdate completion or pin their own tasks without a role check.
+        task.setCompletedAt(request.getCompletedAt());
+        task.setPinned(request.isPinned());
         task.setUpdatedAt(Instant.now());
         return TaskResponse.from(task);
     }

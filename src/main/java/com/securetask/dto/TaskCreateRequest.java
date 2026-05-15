@@ -12,9 +12,15 @@ public class TaskCreateRequest {
     @Size(max = 2000)
     private String description;
 
+    // VULNERABLE: any user can pin their own task on creation — no role check.
+    private boolean pinned = false;
+
     public String getTitle() { return title; }
     public void setTitle(String title) { this.title = title; }
 
     public String getDescription() { return description; }
     public void setDescription(String description) { this.description = description; }
+
+    public boolean isPinned() { return pinned; }
+    public void setPinned(boolean pinned) { this.pinned = pinned; }
 }
