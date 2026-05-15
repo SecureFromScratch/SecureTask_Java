@@ -11,6 +11,8 @@ By the end of this lab you should be able to:
 5. Describe the four-layer defence in `SsrfGuard`: HTTPS-only, domain allowlist, IP range check, no redirects.
 6. Trace the request flow through `WebhookController → WebhookService → SsrfGuard`.
 7. Articulate what the current fix does *not* protect against (DNS rebinding).
+8. Recognize common application features that introduce SSRF (webhooks, upload-from-URL, PDF generation, OAuth flows, LLM tool calls).
+9. List additional hardening steps beyond the application layer: response size limits, Content-Type validation, and network-level egress controls.
 
 ---
 
@@ -50,9 +52,32 @@ This fails in multiple ways:
 
 The only reliable approach: **resolve the hostname to an IP address, then check the IP against known-internal ranges.** Combine this with a domain allowlist so unknown external targets are also rejected.
 
+### Where SSRF hides in real applications
+
+SSRF does not only appear in webhooks. It surfaces in any feature where user input decides where the server connects:
+
+| Feature | SSRF vector |
+|---------|-------------|
+| "Upload image from URL" | URL supplied by the user |
+| Webhook notifications | Callback URL stored by the user |
+| PDF / thumbnail generation | URL embedded in user-supplied content |
+| URL preview / link unfurling | URL shared by the user |
+| OAuth / SSO integrations | The `redirect_uri` or provider discovery URL |
+| LLM tools that fetch URLs | Any URL the model extracts from user input |
+
+**Rule of thumb:** If user input affects *where* the server connects, SSRF is possible.
+
 ### Synchronizer token pattern for webhooks
 
 This lab uses the synchronizer token pattern established in Lab 03 for state-changing requests (`POST`, `DELETE`). The CSRF token is still required for all mutating webhook endpoints.
+
+### Developer mental model
+
+Ask this question during design and code review:
+
+> **"Can user input influence where my server connects?"**
+
+If the answer is yes: assume SSRF is possible, require an allowlist, and apply layered defences.
 
 ---
 
@@ -365,6 +390,20 @@ Allowing `http://` means credentials travel in the clear and the attacker can re
 
 An attacker can point a webhook at a slow host to hold threads open indefinitely. The `outboundHttpClient` bean sets a 5-second connect and 10-second read timeout — do not remove these.
 
+### Accepting URLs with userinfo
+
+A URL such as `https://allowed.com@evil.com/` is syntactically valid. Java's `URI.getHost()` correctly returns `evil.com`, so the allowlist check catches this particular form. However, userinfo in a webhook URL is never legitimate and should be rejected explicitly to prevent parser edge-case surprises in other URL libraries:
+
+```java
+if (uri.getUserInfo() != null) {
+    throw new BlockedUrlException("URLs with userinfo are not permitted");
+}
+```
+
+### Checking only the first resolved IP address
+
+`InetAddress.getByName(host)` returns one address. A hostname with multiple A records (DNS round-robin) could return a public IP at validation time but route to a different IP at connection time. For stricter protection, use `InetAddress.getAllByName(host)` and verify **every** resolved address — if any one is internal, reject the entire request.
+
 ---
 
 ## Discussions
@@ -395,6 +434,8 @@ In a DNS rebinding attack the attacker controls a domain that is on the allowlis
 
 Prevention requires validating the IP of the *actual TCP connection*, not just the pre-connection DNS result. This is complex (it requires a custom HTTP client or a socket factory that hooks into the connect step) and is out of scope for this lab. The allowlist significantly reduces the risk surface: only attacker-controlled allowlisted domains can attempt rebinding.
 
+A more robust mitigation is **DNS pinning**: resolve the hostname once before the request, then instruct the HTTP client to connect to exactly those IPs without issuing another DNS query. This closes the TOCTOU window. Implementing DNS pinning in Java requires a custom `SocketFactory` — it is an advanced hardening step beyond what this lab implements.
+
 **Q7: Why does resolving `InetAddress.getByName("127.0.0.1")` not make a DNS query?**
 
 `InetAddress.getByName()` checks whether the argument is a valid numeric IP literal first. If it is, it parses it directly without sending a DNS query. This is why `SsrfGuardTest` unit tests run fully offline — they use literal IP addresses, not hostnames.
@@ -402,3 +443,22 @@ Prevention requires validating the IP of the *actual TCP connection*, not just t
 **Q8: Why is the `OutboundHttpClient` a `@FunctionalInterface` rather than using `RestClient` directly?**
 
 `RestClient` has a fluent builder API that is awkward to mock in tests. Wrapping it in a single-method interface lets `@MockBean` replace the entire HTTP call with a stub in `WebhookControllerTest`. The `SsrfGuard` still runs for real in those tests — only the actual network I/O is mocked — so the integration tests exercise the full validation path without touching the network.
+
+**Q9: What additional controls limit damage even after a request passes the guard?**
+
+Even a legitimately allowlisted webhook endpoint can misbehave. Defence-in-depth controls:
+
+- **Response size limit**: cap bytes read from the response body. Without a limit, a slow endpoint streaming gigabytes will exhaust heap memory.
+- **Content-Type validation**: reject unexpected content types (e.g. binary data when JSON is expected). Feeding unexpected input into a parser can trigger bugs unrelated to SSRF.
+- **Network-level egress rules**: an egress firewall that blocks `169.254.169.254` and RFC 1918 ranges at the infrastructure level acts as a safety net if the application-level guard is bypassed. Application-level and network-level controls are complementary — neither replaces the other.
+- **Short timeouts**: already applied in `HttpClientConfig` — 5 s connect, 10 s read.
+
+**Q10: Why should raw IP addresses not appear in the production allowlist?**
+
+The production `ssrf.allowed-domains` list contains only domain names. Allowing raw IPs:
+
+1. Bypasses the DNS → IP-range-check pipeline. The allowlist's job is to name trusted services; the IP-range check's job is to verify they resolve safely. Putting an IP directly on the allowlist skips the second step.
+2. IP addresses of third-party services change. Hardcoding them creates a maintenance burden.
+3. Attackers may operate on the same public IP via virtual hosting; approving an IP is broader than approving a domain.
+
+Raw IPs appear only in `@TestPropertySource` overrides in `SsrfGuardTest` and `WebhookControllerTest`, where literal IPs let offline tests reach the IP-range defence-in-depth check without requiring DNS.
