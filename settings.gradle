@@ -1,1 +1,3 @@
 rootProject.name = 'SecureTask'
+include 'api'
+include 'bff'

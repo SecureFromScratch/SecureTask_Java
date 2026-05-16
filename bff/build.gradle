@@ -1,0 +1,38 @@
+plugins {
+    id 'org.springframework.boot'
+    id 'io.spring.dependency-management'
+    id 'java'
+}
+
+bootJar {
+    archiveFileName = 'securetask-bff.jar'
+}
+
+repositories {
+    mavenCentral()
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-security'
+    implementation 'com.fasterxml.jackson.core:jackson-databind'
+    // Apache HttpClient 5 — avoids HttpURLConnection streaming-mode quirks on 401 responses
+    implementation 'org.apache.httpcomponents.client5:httpclient5'
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.security:spring-security-test'
+}
+
+// Bundle the frontend into the jar as static resources.
+// In production the jar is self-contained; in local dev Spring also resolves
+// file:frontend/ (set in application.properties) so edits are served without a rebuild.
+processResources {
+    from(rootProject.file('frontend')) {
+        into('static')
+    }
+}

@@ -8,8 +8,9 @@ This guide walks you through everything needed to get SecureTask running on your
 
 - PostgreSQL running in Docker, holding the application's data
 - LocalStack running in Docker, acting as a fake AWS Secrets Manager
-- A Spring Boot application running locally, reading its database password from LocalStack
-- A working browser UI at http://localhost:8080
+- A Spring Boot main API running locally on port 8080, reading its database password from LocalStack
+- A Spring Boot BFF (Backend For Frontend) running locally on port 8081, serving the browser UI and proxying API requests
+- A working browser UI at http://localhost:8081
 
 ---
 
@@ -90,30 +91,44 @@ Before running anything, take a minute to understand the moving parts.
 
 ```
 SecureTask_Java/
-├── build.gradle                  ← Gradle build: dependencies, plugins, Java version
-├── settings.gradle               ← Project name
+├── settings.gradle               ← Gradle root: declares api and bff as subprojects
+├── build.gradle                  ← Plugin version management only
 ├── gradlew                       ← Gradle wrapper script (runs Gradle without installing it)
-├── docker-compose.yml            ← Defines postgres + localstack containers
-├── Dockerfile                    ← Builds the app into a Docker image (optional, for full Docker run)
+├── docker-compose.yml            ← postgres + localstack + api + bff containers
 ├── localstack/
 │   └── init/
-│       └── 01-create-db-secret.sh ← Runs inside LocalStack on first start, creates the DB secret
-├── src/
-│   └── main/
+│       ├── 01-create-db-secret.sh
+│       ├── 02-create-s3-bucket.sh
+│       └── 03-create-jwt-secret.sh
+├── frontend/                     ← HTML, CSS, JS — served by the BFF
+│   ├── login.html
+│   ├── dashboard.html
+│   ├── css/
+│   └── js/
+├── api/                          ← Spring Boot REST API (port 8080)
+│   ├── build.gradle
+│   ├── Dockerfile
+│   └── src/main/
 │       ├── java/com/securetask/
-│       │   ├── config/           ← Reads DB credentials from Secrets Manager
-│       │   ├── controller/       ← REST endpoints (/api/register, /api/me)
-│       │   ├── dto/              ← What the API accepts and returns (not raw DB entities)
-│       │   ├── entity/           ← JPA entities (User, Role)
+│       │   ├── config/           ← DB + S3 + JWT config, reads from Secrets Manager
+│       │   ├── controller/       ← REST endpoints (/api/register, /api/tasks, …)
+│       │   ├── dto/              ← What the API accepts and returns
+│       │   ├── entity/           ← JPA entities
 │       │   ├── repository/       ← Database queries
-│       │   ├── security/         ← Spring Security config, password encoder, UserDetailsService
-│       │   └── service/          ← Business logic (registration, role assignment)
+│       │   ├── security/         ← JWT Bearer auth, SecurityConfig
+│       │   └── service/          ← Business logic
 │       └── resources/
-│           ├── application.properties       ← Main config (no passwords here)
-│           ├── application-local.properties ← Overrides for local dev
-│           └── static/           ← HTML, CSS, JS served directly by Spring Boot
-└── walkthroughs/
-    └── 01-authentication.md      ← Lab guide
+│           └── application.properties
+└── bff/                          ← Spring Boot BFF (port 8081)
+    ├── build.gradle
+    ├── Dockerfile
+    └── src/main/
+        ├── java/com/securetask/bff/
+        │   ├── config/           ← SecurityConfig, RestTemplate
+        │   ├── controller/       ← SessionController (login/logout), ApiProxyController
+        │   └── security/         ← CsrfCookieFilter
+        └── resources/
+            └── application.properties
 ```
 
 ### Why two containers?
@@ -145,16 +160,17 @@ cd SecureTask_Java
 
 ## Section 4 — Understand Docker Compose
 
-Open `docker-compose.yml` and read it. There are three services defined:
+Open `docker-compose.yml` and read it. There are four services defined:
 
 ```yaml
 services:
   postgres:    # the database
   localstack:  # the fake AWS
-  app:         # the Spring Boot application (only used for full Docker runs)
+  app:         # the Spring Boot main API on port 8080 (only used for full Docker runs)
+  bff:         # the Spring Boot BFF on port 8081 (only used for full Docker runs)
 ```
 
-For local development you will only start `postgres` and `localstack`. You will run the application itself directly on your machine using Gradle.
+For local development you will only start `postgres` and `localstack`. You will run the main API and the BFF directly on your machine using Gradle.
 
 ### 4.1 — Start the backing services
 
@@ -163,7 +179,7 @@ docker compose up -d postgres localstack
 ```
 
 - `-d` means "detached" — the containers run in the background
-- This does not start the `app` container
+- This does not start the `app` or `bff` containers
 
 **What happens next:**
 
@@ -222,6 +238,8 @@ Expected output:
 ```
 Secret 'securetask/db' is ready.
 Secret 'securetask/db-docker' is ready.
+Secret 'securetask/jwt' is ready.
+S3 bucket 'securetask-uploads' is ready.
 ```
 
 If you do not see those lines, wait a few more seconds and run the command again. If they never appear, check the full log:
@@ -243,7 +261,7 @@ aws --endpoint-url=http://localhost:4566 \
 
 ## Section 5 — Understand how the app reads the secret
 
-Open `src/main/java/com/securetask/config/SecretsManagerConfig.java`.
+Open `api/src/main/java/com/securetask/config/SecretsManagerConfig.java`.
 
 When Spring Boot starts, before it connects to the database, this class runs:
 
@@ -270,7 +288,9 @@ If any step fails — wrong endpoint, secret does not exist, malformed JSON — 
 
 The Gradle wrapper (`./gradlew`) downloads and runs the correct version of Gradle automatically. You do not need to install Gradle separately.
 
-### 6.1 — First run (downloads dependencies)
+You will need two terminal windows — one for the main API and one for the BFF.
+
+### 6.1 — Terminal 1: Start the main API (first run downloads dependencies)
 
 The first time you run this, Gradle downloads all Java dependencies (~150 MB). Subsequent runs use the cache and are much faster.
 
@@ -280,7 +300,8 @@ AWS_ACCESS_KEY_ID=test \
 AWS_SECRET_ACCESS_KEY=test \
 SECRETS_MANAGER_ENDPOINT=http://localhost:4566 \
 DB_SECRET_NAME=securetask/db \
-./gradlew bootRun
+JWT_SECRET_NAME=securetask/jwt \
+./gradlew :api:bootRun
 ```
 
 ### 6.2 — What each environment variable means
@@ -292,9 +313,21 @@ DB_SECRET_NAME=securetask/db \
 | `AWS_SECRET_ACCESS_KEY` | `test` | Same as above |
 | `SECRETS_MANAGER_ENDPOINT` | `http://localhost:4566` | Redirects AWS SDK calls to LocalStack instead of real AWS |
 | `DB_SECRET_NAME` | `securetask/db` | Fetches the secret with `localhost` in the URL (correct for running on your machine) |
+| `JWT_SECRET_NAME` | `securetask/jwt` | Fetches the JWT signing key secret |
 
-### 6.3 — What a successful startup looks like
+### 6.3 — Terminal 2: Start the BFF
 
+In a second terminal, run:
+
+```bash
+./gradlew :bff:bootRun
+```
+
+> **Note:** The BFF needs no environment variables for local development. It defaults to connecting to the main API at `http://localhost:8080` and serves the frontend files from the `frontend/` directory.
+
+### 6.4 — What a successful startup looks like
+
+For the main API:
 ```
   .   ____          _            __ _ _
  /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
@@ -308,9 +341,9 @@ DB_SECRET_NAME=securetask/db \
 Started SecureTaskApplication in 4.2 seconds
 ```
 
-The app is ready when you see `Started SecureTaskApplication`.
+The BFF will print a similar banner and report that it started on port 8081.
 
-### 6.4 — What a failed startup looks like and why
+### 6.5 — What a failed startup looks like and why
 
 **"Unknown host: postgres"**
 You used `DB_SECRET_NAME=securetask/db-docker` (Docker hostname) while running on your machine. Use `securetask/db` instead.
@@ -328,7 +361,9 @@ PostgreSQL is not running. Run `docker compose up -d postgres`.
 
 ## Section 7 — Open the application in your browser
 
-With the app running, open: **http://localhost:8080**
+With both services running, open: **http://localhost:8081**
+
+All browser traffic goes through the BFF on port 8081. The main API on port 8080 is for direct programmatic access (curl, Postman) using JWT Bearer tokens.
 
 ### 7.1 — Register the first user (becomes ADMIN)
 
@@ -353,11 +388,11 @@ The dashboard shows:
 
 ### 7.4 — Register a second user (becomes VIEWER)
 
-Open an incognito/private window and go to http://localhost:8080/register.html. Register a different account. When you log in with it, the role will be **VIEWER**.
+Open an incognito/private window and go to http://localhost:8081/register.html. Register a different account. When you log in with it, the role will be **VIEWER**.
 
 ### 7.5 — Try accessing a protected page without logging in
 
-Open http://localhost:8080/dashboard.html in a new tab where you are not logged in. You will be redirected to the login page. The API behaves the same way — try:
+Open http://localhost:8081/dashboard.html in a new tab where you are not logged in. The BFF returns 401. The API behaves the same way — try:
 
 ```bash
 curl -i http://localhost:8080/api/me
@@ -376,25 +411,33 @@ The tests use **Testcontainers**, which automatically starts a real PostgreSQL c
 
 Docker must be running (so Testcontainers can start the container):
 ```bash
-./gradlew test
+./gradlew :api:test
 ```
 
 Expected output:
 ```
-> Task :test
+> Task :api:test
 
 UserServiceTest > firstUserBecomesAdmin() PASSED
-UserServiceTest > secondUserBecomesViewer() PASSED
-UserServiceTest > concurrentFirstRegistrationCreatesAtMostOneAdmin() PASSED
-UserServiceTest > passwordStoredAsArgon2Hash() PASSED
-UserServiceTest > passwordHashNotExposedInUserResponse() PASSED
-UserServiceTest > duplicateUsernameIsRejected() PASSED
-UserServiceTest > duplicateEmailIsRejected() PASSED
-AuthControllerTest > unauthenticatedUserCannotAccessMe() PASSED
-AuthControllerTest > authenticatedUserCanAccessMe() PASSED
-AuthControllerTest > passwordHashNotInMeResponse() PASSED
+...
 AuthControllerTest > registrationReturns201WithSafeFields() PASSED
-AuthControllerTest > duplicateUsernameReturns409() PASSED
+...
+AdminControllerTest > listUsers_asAdmin_returns200() PASSED
+...
+TaskControllerTest > createTask_returnsCreated() PASSED
+...
+WebhookControllerTest > createWebhook_validUrl_returns201() PASSED
+...
+SsrfGuardTest > allowsPublicHttpsUrl() PASSED
+...
+AttachmentControllerTest > uploadAttachment_validPng_returns201() PASSED
+...
+FileTypeValidatorTest > pngMagicBytesAccepted() PASSED
+...
+TokenControllerTest > issueToken_validCredentials_returns200() PASSED
+...
+MassAssignmentTest > createTask_pinnedInBody_isIgnored() PASSED
+...
 
 BUILD SUCCESSFUL
 ```
@@ -403,7 +446,7 @@ BUILD SUCCESSFUL
 
 ## Section 9 — Stop everything
 
-Stop the Spring Boot app: press `Ctrl+C` in the terminal where it is running.
+Stop the Spring Boot apps: press `Ctrl+C` in each terminal where they are running.
 
 Stop the Docker containers:
 ```bash
@@ -450,16 +493,20 @@ docker compose ps
 # Verify secrets were created
 docker compose logs localstack | grep "is ready"
 
-# Run the app
+# Run the main API (Terminal 1)
 AWS_REGION=us-east-1 \
 AWS_ACCESS_KEY_ID=test \
 AWS_SECRET_ACCESS_KEY=test \
 SECRETS_MANAGER_ENDPOINT=http://localhost:4566 \
 DB_SECRET_NAME=securetask/db \
-./gradlew bootRun
+JWT_SECRET_NAME=securetask/jwt \
+./gradlew :api:bootRun
+
+# Run the BFF (Terminal 2)
+./gradlew :bff:bootRun
 
 # Run tests (no LocalStack needed)
-./gradlew test
+./gradlew :api:test
 
 # Stop containers
 docker compose down

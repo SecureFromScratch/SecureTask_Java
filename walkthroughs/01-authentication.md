@@ -9,7 +9,7 @@ By the end of this lab you will be able to:
 - Implement registration and login using Spring Security.
 - Explain the first-user bootstrap pattern and why it avoids hard-coded admin credentials.
 - Identify how mass-assignment is prevented by using DTOs.
-- Describe how Spring session cookies work and why they should be `HttpOnly` and `SameSite=Strict`.
+- Describe how the BFF session cookie works and why it should be `HttpOnly` and `SameSite=Strict`.
 
 ---
 
@@ -33,19 +33,20 @@ Common authentication mistakes:
 
 | File | Purpose |
 |------|---------|
-| `src/main/java/com/securetask/entity/User.java` | JPA entity — note that role is not settable by the client |
-| `src/main/java/com/securetask/dto/RegisterRequest.java` | Inbound DTO — the only fields the client may provide |
-| `src/main/java/com/securetask/dto/UserResponse.java` | Outbound DTO — passwordHash is intentionally absent |
-| `src/main/java/com/securetask/service/UserService.java` | Business logic — role assignment, hashing |
-| `src/main/java/com/securetask/security/SecurityConfig.java` | Spring Security filter chain |
-| `src/main/java/com/securetask/security/SecureTaskUserDetailsService.java` | Bridges User entity to Spring Security |
-| `src/main/java/com/securetask/controller/AuthController.java` | REST endpoints `/api/register` and `/api/me` |
-| `src/main/resources/static/register.html` | Registration form |
-| `src/main/resources/static/login.html` | Login form |
-| `src/main/resources/static/dashboard.html` | Protected page |
-| `src/main/resources/static/js/api.js` | Fetch wrapper — handles CSRF token |
-| `src/main/resources/static/js/auth.js` | Page-level auth logic |
-| `src/main/resources/static/js/dom.js` | Safe DOM helpers (textContent only) |
+| `api/src/main/java/com/securetask/entity/User.java` | JPA entity — note that role is not settable by the client |
+| `api/src/main/java/com/securetask/dto/RegisterRequest.java` | Inbound DTO — the only fields the client may provide |
+| `api/src/main/java/com/securetask/dto/UserResponse.java` | Outbound DTO — passwordHash is intentionally absent |
+| `api/src/main/java/com/securetask/service/UserService.java` | Business logic — role assignment, hashing |
+| `api/src/main/java/com/securetask/security/SecurityConfig.java` | Spring Security filter chain (JWT Bearer, stateless) |
+| `api/src/main/java/com/securetask/security/SecureTaskUserDetailsService.java` | Bridges User entity to Spring Security |
+| `api/src/main/java/com/securetask/controller/AuthController.java` | REST endpoints `/api/register` and `/api/me` |
+| `bff/src/main/java/com/securetask/bff/controller/SessionController.java` | BFF login/logout — sets and clears the `BFF-SESSION` cookie |
+| `frontend/register.html` | Registration form |
+| `frontend/login.html` | Login form |
+| `frontend/dashboard.html` | Protected page |
+| `frontend/js/api.js` | Fetch wrapper — handles CSRF token |
+| `frontend/js/auth.js` | Page-level auth logic |
+| `frontend/js/dom.js` | Safe DOM helpers (textContent only) |
 
 ---
 
@@ -64,7 +65,7 @@ The registration endpoint accepts a `RegisterRequest` DTO, not a `User` entity. 
 `UserResponse` has no `passwordHash` field. The hash is never serialized or returned by any API endpoint.
 
 ### 5. Session security
-Cookies are marked `HttpOnly` (JavaScript cannot read `JSESSIONID`) and `SameSite=Strict` (cookies are not sent on cross-site requests).
+The BFF session cookie (`BFF-SESSION`) is marked `HttpOnly` (JavaScript cannot read it) and `SameSite=Strict` (it is not sent on cross-site requests). The main API itself is fully stateless and issues no cookies.
 
 ---
 
@@ -74,19 +75,21 @@ Cookies are marked `HttpOnly` (JavaScript cannot read `JSESSIONID`) and `SameSit
 
 ### Step 1 — Understand the DTO boundary
 
-Open `RegisterRequest.java`. Notice that it only has `username`, `email`, and `password`. There is no `role` field.
+Open `api/src/main/java/com/securetask/dto/RegisterRequest.java`. Notice that it only has `username`, `email`, and `password`. There is no `role` field.
 
 **Question:** What would happen if you used the `User` entity directly as the `@RequestBody` parameter?
 
 ### Step 2 — Trace the registration flow
 
-1. `POST /api/register` → `AuthController.register()`
-2. Spring validates the `@Valid @RequestBody RegisterRequest`.
-3. `UserService.register()` checks for duplicate username/email.
-4. If this is the first user (`countUsers() == 0`), role is set to `ADMIN`; otherwise `VIEWER`.
-5. The password is hashed: `passwordEncoder.encode(request.getPassword())`.
-6. The `User` entity is saved.
-7. A `UserResponse` (no hash) is returned.
+1. Browser submits the registration form → BFF receives `POST /api/register`
+2. BFF's `ApiProxyController` forwards the request to the main API at `http://localhost:8080/api/register`, adding a service token.
+3. Main API's `AuthController.register()` receives the forwarded request.
+4. Spring validates the `@Valid @RequestBody RegisterRequest`.
+5. `UserService.register()` checks for duplicate username/email.
+6. If this is the first user (`countUsers() == 0`), role is set to `ADMIN`; otherwise `VIEWER`.
+7. The password is hashed: `passwordEncoder.encode(request.getPassword())`.
+8. The `User` entity is saved.
+9. A `UserResponse` (no hash) is returned.
 
 ### Step 3 — Inspect the password hash
 
@@ -108,20 +111,23 @@ The raw password `password123` must not appear anywhere in that string.
 
 ### Step 4 — Verify the /api/me response
 
-Log in via the browser or curl:
+Use JWT Bearer tokens to call the main API directly:
 
 ```bash
-curl -c cookies.txt -X POST http://localhost:8080/login \
-  -d "username=alice&password=password123"
+# Get a token
+ACCESS=$(curl -s -X POST http://localhost:8080/api/auth/token \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"alice","password":"password123"}' | jq -r .accessToken)
 
-curl -b cookies.txt http://localhost:8080/api/me
+# Call /api/me with the Bearer token
+curl -s http://localhost:8080/api/me -H "Authorization: Bearer $ACCESS"
 ```
 
 Confirm the response JSON contains `username`, `email`, `role`, and `createdAt` — but **not** `passwordHash` or `password`.
 
 ### Step 5 — Test unauthenticated access
 
-Without the session cookie:
+Without a token:
 
 ```bash
 curl -i http://localhost:8080/api/me
@@ -139,7 +145,7 @@ Expected: `HTTP/1.1 401`
 
 ### Step 7 — Read the security filter chain
 
-Open `SecurityConfig.java`. Find the `authorizeHttpRequests` section.
+Open `api/src/main/java/com/securetask/security/SecurityConfig.java`. Find the `authorizeHttpRequests` section.
 
 **Question:** What is "deny by default"? Which line in the configuration enforces it?
 
@@ -147,11 +153,11 @@ Open `SecurityConfig.java`. Find the `authorizeHttpRequests` section.
 
 ## Manual test checklist
 
-- [ ] Register at http://localhost:8080/register.html — first account gets ADMIN role
+- [ ] Register at http://localhost:8081/register.html — first account gets ADMIN role
 - [ ] Register a second account — gets VIEWER role
-- [ ] Log in at http://localhost:8080/login.html and reach the dashboard
-- [ ] Open http://localhost:8080/dashboard.html without logging in — redirects to login
-- [ ] Call `GET /api/me` without a session — returns 401
+- [ ] Log in at http://localhost:8081/login.html and reach the dashboard
+- [ ] Open http://localhost:8081/dashboard.html without logging in — the BFF returns 401
+- [ ] Call `GET /api/me` without a token — returns 401
 - [ ] Check the database: password_hash column starts with `{argon2}`, not plaintext
 - [ ] Inspect the `/api/me` JSON response: no `passwordHash` field present
 
@@ -164,7 +170,7 @@ Open `SecurityConfig.java`. Find the `authorizeHttpRequests` section.
 | First registered user | `role: "ADMIN"` |
 | Second registered user | `role: "VIEWER"` |
 | `/api/me` (unauthenticated) | `401 Unauthorized` |
-| `/api/me` (authenticated) | `200 OK`, JSON with no `passwordHash` |
+| `/api/me` (authenticated with Bearer token) | `200 OK`, JSON with no `passwordHash` |
 | Password column in DB | Starts with `{argon2}` |
 | Sending `"role":"ADMIN"` in registration body | Ignored — role is assigned server-side |
 
@@ -251,6 +257,8 @@ A CSRF attack works by tricking a logged-in user's browser into making a request
 
 With `SameSite=Strict`, the browser will not attach the session cookie to any request that originates from a different site. The forged request arrives without a session cookie and is treated as unauthenticated.
 
+In this architecture the relevant cookie is `BFF-SESSION` — the server-side session cookie issued by the BFF. The main API itself is stateless and issues no cookies. `BFF-SESSION` is marked `HttpOnly=true` and `SameSite=Strict`, so JavaScript on the page cannot read it and cross-site requests cannot carry it.
+
 `SameSite=Strict` is a defence-in-depth measure. This application also uses a CSRF token (the `XSRF-TOKEN` cookie read by `api.js`) for the same reason. Lab 03 explores CSRF in depth.
 
 **Q5: What HTTP status code should an API return when the user is not authenticated? Why not 403?**
@@ -294,11 +302,10 @@ Even though the value is a hash and not the original password, leaking it is dan
 
 **Q7: Why does the `/login` endpoint use `application/x-www-form-urlencoded` instead of JSON?**
 
-Spring Security's built-in form login handler (`UsernamePasswordAuthenticationFilter`) expects credentials as URL-encoded form parameters — `username=alice&password=secret` — not as a JSON body. This is the format browsers use when submitting an HTML `<form>`.
+The BFF's `SessionController` handles `POST /login` and accepts `application/x-www-form-urlencoded` — the format browsers use when submitting a standard HTML `<form>`. This means the browser can POST the login form directly without any JavaScript involved.
 
-Using the built-in filter has two advantages over writing a custom JSON login endpoint:
+When the BFF receives the form submission it calls `POST /api/auth/token` on the main API, passing the credentials as JSON. The main API validates them, issues a JWT, and returns it. The BFF stores that JWT in the server-side session (keyed under `BFF-SESSION`) and never exposes it to the browser.
 
-1. **It is battle-tested.** Spring Security's filter handles credential extraction, authentication, session creation, and security event publishing correctly. A custom endpoint would need to replicate all of that.
-2. **It works with the rest of the security chain.** Session fixation protection, remember-me tokens, and security event listeners all integrate automatically.
+This is what makes the BFF pattern work: the browser never sees a JWT. From the browser's perspective it submits a form and receives a session cookie. From the main API's perspective every subsequent request arrives with a valid Bearer token that the BFF extracted from its session and forwarded.
 
-The trade-off is that the JavaScript client must send `application/x-www-form-urlencoded` for login specifically, while all other API calls use JSON. This is handled in `api.js` in the `login` function, which uses `URLSearchParams` to build the correct format.
+The main API no longer uses Spring Security's `formLogin` at all. It only accepts JWT Bearer tokens and is fully stateless. Any direct API access (curl, Postman, service-to-service) should use `POST /api/auth/token` to obtain a token and then pass it as `Authorization: Bearer <token>`.
