@@ -1,6 +1,7 @@
 package com.securetask.controller;
 
 import com.securetask.dto.TaskCreateRequest;
+import com.securetask.dto.TaskPinRequest;
 import com.securetask.dto.TaskResponse;
 import com.securetask.dto.TaskUpdateRequest;
 import com.securetask.service.ResourceNotFoundException;
@@ -51,6 +52,16 @@ public class TaskController {
         try {
             TaskResponse response = taskService.update(id, request, authentication.getName());
             return ResponseEntity.ok(response);
+        } catch (ResourceNotFoundException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    @PreAuthorize("hasRole('ADMIN')")
+    @PatchMapping("/{id}/pin")
+    public ResponseEntity<?> pin(@PathVariable Long id, @RequestBody TaskPinRequest request) {
+        try {
+            return ResponseEntity.ok(taskService.pin(id, request.isPinned()));
         } catch (ResourceNotFoundException e) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", e.getMessage()));
         }
