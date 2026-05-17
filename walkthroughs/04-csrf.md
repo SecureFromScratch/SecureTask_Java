@@ -180,13 +180,24 @@ X-XSRF-TOKEN: <token>
 
 This header cannot be set by a cross-origin form. Only same-origin JavaScript can set custom headers. The BFF validates the header before proxying the request to the main API with a JWT Bearer token injected on behalf of the logged-in user.
 
-### Step 4 — Demonstrate a rejected request (missing token)
+### Step 4 — Find a target user ID
+
+You need the ID of a **different** user to change their role (the API blocks an admin from changing their own role). Fetch the user list first:
+
+```javascript
+fetch("/api/admin/users", { credentials: "include" })
+  .then(r => r.json()).then(console.log);
+```
+
+Find the `id` of a VIEWER user. Use that ID in place of `<VIEWER_ID>` in the steps below.
+
+### Step 5 — Demonstrate a rejected request (missing token)
 
 Open a browser console on http://localhost:8081 (same origin) and run:
 
 ```javascript
 // Send a PATCH with no CSRF token
-fetch("/api/admin/users/1/role", {
+fetch("/api/admin/users/<VIEWER_ID>/role", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
@@ -198,10 +209,10 @@ Expected output: `Status: 403`
 
 The BFF rejected the request because `X-XSRF-TOKEN` was absent. The main API was never reached.
 
-### Step 5 — Demonstrate a rejected request (wrong token)
+### Step 6 — Demonstrate a rejected request (wrong token)
 
 ```javascript
-fetch("/api/admin/users/1/role", {
+fetch("/api/admin/users/<VIEWER_ID>/role", {
     method: "PATCH",
     headers: {
         "Content-Type": "application/json",
@@ -214,13 +225,13 @@ fetch("/api/admin/users/1/role", {
 
 Expected output: `Status: 403`
 
-### Step 6 — Demonstrate a successful request (correct token)
+### Step 7 — Demonstrate a successful request (correct token)
 
 ```javascript
 // Read the real token from the cookie
 const token = document.cookie.match(/XSRF-TOKEN=([^;]+)/)[1];
 
-fetch("/api/admin/users/1/role", {
+fetch("/api/admin/users/<VIEWER_ID>/role", {
     method: "PATCH",
     headers: {
         "Content-Type": "application/json",
@@ -231,11 +242,11 @@ fetch("/api/admin/users/1/role", {
 }).then(r => console.log("Status:", r.status));
 ```
 
-Expected output: `Status: 200` (if you are logged in as ADMIN)
+Expected output: `Status: 200`
 
-**Question:** An attacker on `evil.example.com` cannot execute Step 6 successfully. Why not?
+**Question:** An attacker on `evil.example.com` cannot execute Step 7 successfully. Why not?
 
-### Step 7 — Simulate the CSRF attack (same-origin demonstration)
+### Step 8 — Simulate the CSRF attack (same-origin demonstration)
 
 This demonstrates what an attacker *would* try. Because you are on the same origin, you can show that the token is what prevents it — not the origin check.
 
@@ -243,7 +254,7 @@ Open a console on http://localhost:8081 and try submitting a form-encoded reques
 
 ```javascript
 const body = new URLSearchParams({ role: "VIEWER" });
-fetch("/api/admin/users/1/role", {
+fetch("/api/admin/users/<VIEWER_ID>/role", {
     method: "PATCH",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     credentials: "include",

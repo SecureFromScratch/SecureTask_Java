@@ -76,3 +76,18 @@ Register an account — the first user becomes **ADMIN**.
 # Stop Docker services:
 docker compose down
 ```
+
+---
+
+## Ports already in use?
+
+If you see `Port 8080 (or 8081) was already in use`, a previous run is still alive.
+
+Kill whatever is on those ports:
+
+```bash
+lsof -ti:8080 | xargs kill -9 2>/dev/null
+lsof -ti:8081 | xargs kill -9 2>/dev/null
+```
+
+Then start normally again.
