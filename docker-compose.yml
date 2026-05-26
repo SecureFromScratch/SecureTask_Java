@@ -26,7 +26,6 @@ services:
       SERVICES: secretsmanager,s3
       DEFAULT_REGION: us-east-1
       AWS_DEFAULT_REGION: us-east-1
-      # Allow the init script to run on first start.
       LOCALSTACK_VOLUME_DIR: /var/lib/localstack
     ports:
       - "4566:4566"
@@ -51,6 +50,7 @@ services:
         condition: service_healthy
     ports:
       - "8080:8080"
+      - "5005:5005"        # JDWP debug port for API
     environment:
       SPRING_PROFILES_ACTIVE: local
       AWS_REGION: us-east-1
@@ -59,6 +59,7 @@ services:
       SECRETS_MANAGER_ENDPOINT: http://localstack:4566
       S3_ENDPOINT: http://localstack:4566
       DB_SECRET_NAME: securetask/db-docker
+      JAVA_TOOL_OPTIONS: "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005"
 
   bff:
     build:
@@ -70,8 +71,10 @@ services:
         condition: service_started
     ports:
       - "8081:8081"
+      - "5006:5006"        # JDWP debug port for BFF
     environment:
       API_BASE_URL: http://app:8080
+      JAVA_TOOL_OPTIONS: "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5006"
 
 volumes:
   postgres_data:

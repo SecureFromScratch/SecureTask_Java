@@ -1,0 +1,27 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "java",
+      "name": "Attach to API (app)",
+      "request": "attach",
+      "hostName": "localhost",
+      "port": 5005,
+      "projectName": "api"
+    },
+    {
+      "type": "java",
+      "name": "Attach to BFF",
+      "request": "attach",
+      "hostName": "localhost",
+      "port": 5006,
+      "projectName": "bff"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Debug API + BFF",
+      "configurations": ["Attach to API (app)", "Attach to BFF"]
+    }
+  ]
+}
