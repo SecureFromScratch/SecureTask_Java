@@ -5,7 +5,7 @@
 By the end of this lab you will be able to:
 
 - Explain what a CSRF attack is and why it works.
-- Describe the synchronizer token pattern and how it defeats CSRF.
+- Describe the double submit cookie pattern and how it defeats CSRF.
 - Explain why `SameSite=Strict` alone is not sufficient protection.
 - Trace the full CSRF token lifecycle in this application — from issuance to validation.
 - Identify what makes an endpoint CSRF-safe vs CSRF-vulnerable.
@@ -38,14 +38,16 @@ Alice just changed someone's role without knowing it.
 
 The browser's cookie policy sends cookies automatically. Authentication based purely on session cookies is vulnerable because the server cannot tell whether a request came from the legitimate application or from an attacker-controlled page.
 
-### The synchronizer token pattern
+### The double submit cookie pattern
 
 The fix is to require a secret value that:
-- The server knows (it generates it)
-- The legitimate JavaScript client can read (it's in a readable cookie)
+- The server generates and sends as a cookie
+- The legitimate JavaScript client can read from that cookie and echo back as a request header
 - An attacker-controlled page cannot read (same-origin policy prevents cross-origin cookie reads)
 
-This secret is the **CSRF token**. On every state-changing request, the client must include it. The server compares the submitted token against the one it issued. If they don't match, the request is rejected.
+This secret is the **CSRF token**. On every state-changing request, the client must submit the token value in a custom header (`X-XSRF-TOKEN`). The server compares the header value against the cookie value. If they don't match, the request is rejected.
+
+The key distinction from the **synchronizer token pattern**: the server does not store the token server-side. The cookie is both the storage and the ground truth. The validation is purely: does the value in the cookie match the value in the header? An attacker cannot win because they can force the browser to send the cookie, but cannot read it to forge the header.
 
 ### Why SameSite=Strict is not sufficient alone
 
@@ -54,7 +56,7 @@ This secret is the **CSRF token**. On every state-changing request, the client m
 - Older browsers do not support `SameSite`.
 - Some browser extensions can bypass it.
 - Subdomain attacks (`evil.securetask.example.com`) are still cross-site but share the domain.
-- Defence-in-depth requires both: `SameSite=Strict` + the synchronizer token.
+- Defence-in-depth requires both: `SameSite=Strict` + the double submit cookie token.
 
 ---
 
@@ -70,8 +72,8 @@ CSRF protection in the browser context is handled by the **BFF** (Backend For Fr
 CookieCsrfTokenRepository csrfRepo = CookieCsrfTokenRepository.withHttpOnlyFalse();
 ```
 
-- The BFF generates a random token and stores it server-side, tied to the BFF session.
-- It also writes the token into a cookie named `XSRF-TOKEN`.
+- The BFF generates a random token and writes it into a cookie named `XSRF-TOKEN`.
+- The cookie is the only storage — there is no server-side copy. This is what makes it the double submit cookie pattern, not the synchronizer token pattern.
 - `withHttpOnlyFalse()` is deliberate — the JavaScript client must be able to read this cookie.
   The BFF session cookie (`BFF-SESSION`) remains `HttpOnly=true`, so XSS cannot steal the session.
 
@@ -107,11 +109,11 @@ if (token) {
 }
 ```
 
-Custom headers (`X-XSRF-TOKEN`) cannot be set by a cross-origin HTML form. Only JavaScript running on the same origin can set them. This is why the synchronizer token pattern works.
+Custom headers (`X-XSRF-TOKEN`) cannot be set by a cross-origin HTML form. Only JavaScript running on the same origin can set them. This is why the double submit cookie pattern works.
 
 ### Token validation
 
-The BFF's `CsrfFilter` intercepts every `POST`, `PATCH`, `PUT`, and `DELETE` request sent to the BFF. It compares the `X-XSRF-TOKEN` header (or `_csrf` form parameter) against the token stored in the BFF session. If they do not match, the request is rejected with `403 Forbidden` — the main API is never reached.
+The BFF's `CsrfFilter` intercepts every `POST`, `PATCH`, `PUT`, and `DELETE` request sent to the BFF. It reads the `XSRF-TOKEN` cookie value from the incoming request and compares it against the `X-XSRF-TOKEN` header (or `_csrf` form parameter). If they do not match, the request is rejected with `403 Forbidden` — the main API is never reached. No server-side token lookup is needed.
 
 ### Login and logout
 
@@ -280,6 +282,107 @@ Open `bff/src/main/java/com/securetask/bff/security/CsrfCookieFilter.java`. Noti
 
 ---
 
+## Investigating the Double Submit Cookie pattern in Spring Security source
+
+The steps above show the behaviour from the outside (browser DevTools). This section shows how to trace the same flow through the Spring Security source code so you understand exactly what the framework is checking.
+
+### How to get the sources
+
+The sources jar is already in your Gradle cache after the first build:
+
+```
+~/.gradle/caches/modules-2/files-2.1/org.springframework.security/
+  spring-security-web/<version>/<hash>/spring-security-web-<version>-sources.jar
+```
+
+You can extract the two relevant files to read them:
+
+```bash
+jar xf spring-security-web-<version>-sources.jar \
+  org/springframework/security/web/csrf/CookieCsrfTokenRepository.java \
+  org/springframework/security/web/csrf/CsrfFilter.java
+```
+
+### Trace 1 — How the token is stored (cookie write)
+
+Open `CookieCsrfTokenRepository.java` and find `saveToken()`:
+
+```java
+ResponseCookie.ResponseCookieBuilder cookieBuilder =
+    ResponseCookie.from(this.cookieName, tokenValue)   // cookieName = "XSRF-TOKEN"
+        .secure(...)
+        .httpOnly(this.cookieHttpOnly)                  // false → JS can read it
+        ...
+response.addCookie(mapToCookie(cookieBuilder.build()));
+```
+
+This is what writes the `XSRF-TOKEN` cookie into the HTTP response. It runs whenever the BFF issues or refreshes a token.
+
+### Trace 2 — How the expected token is loaded (cookie read)
+
+Find `loadToken()` in the same file:
+
+```java
+Cookie cookie = WebUtils.getCookie(request, this.cookieName);  // reads XSRF-TOKEN from the incoming request
+String token = cookie.getValue();
+return new DefaultCsrfToken(this.headerName, this.parameterName, token);
+// headerName     = "X-XSRF-TOKEN"
+// parameterName  = "_csrf"
+// token          = the value from the cookie
+```
+
+The **expected** token is whatever value arrived in the `XSRF-TOKEN` cookie. The server issued that value on a previous response.
+
+### Trace 3 — How the actual token is extracted (header read)
+
+Open `CsrfFilter.java` and find `doFilterInternal()`:
+
+```java
+String actualToken = this.requestHandler.resolveCsrfTokenValue(request, csrfToken);
+```
+
+`resolveCsrfTokenValue` reads the `X-XSRF-TOKEN` request header (or `_csrf` form parameter). This is the value your JavaScript placed there by calling `getCsrfToken()` and setting the header.
+
+### Trace 4 — The comparison
+
+Immediately below:
+
+```java
+if (!equalsConstantTime(csrfToken.getToken(), actualToken)) {
+    // → 403 AccessDeniedException
+}
+```
+
+| Variable | Source | Value |
+|---|---|---|
+| `csrfToken.getToken()` | `XSRF-TOKEN` cookie on the incoming request | What the server previously issued |
+| `actualToken` | `X-XSRF-TOKEN` header on the incoming request | What the JS client sent |
+
+If they match → request passes. If not → 403.
+
+The comparison uses `MessageDigest.isEqual` (constant-time) to prevent timing attacks — an attacker cannot deduce the token by measuring how long the comparison takes.
+
+### Why a cross-origin attacker cannot win
+
+```
+XSRF-TOKEN cookie  → sent automatically by the browser (attacker can force this)
+X-XSRF-TOKEN header → must be set explicitly by JS (attacker cannot read cross-origin cookies)
+```
+
+The attacker can make your browser send the cookie, but cannot read it to forge the header. The two values will never match → always 403.
+
+### One detail to notice
+
+In `CsrfFilter.java` line 90 (Spring 6.3):
+
+```java
+private CsrfTokenRequestHandler requestHandler = new XorCsrfTokenRequestAttributeHandler();
+```
+
+The **default** handler in Spring is the XOR-masked one. This application overrides it with the plain `CsrfTokenRequestAttributeHandler` in `SecurityConfig`, which sends the raw token in the cookie rather than an XOR-masked version. This works correctly but removes the BREACH mitigation. See the Common Mistakes section in this walkthrough and the note in `SecurityConfig.java`.
+
+---
+
 ## Manual test checklist
 
 - [ ] `XSRF-TOKEN` cookie is present after loading any page at http://localhost:8081
@@ -317,10 +420,13 @@ Open `bff/src/main/java/com/securetask/bff/security/CsrfCookieFilter.java`. Noti
 **Why it matters:** JavaScript cannot read an `HttpOnly` cookie. The client has no token to send, and every state-changing request will fail with 403.
 
 **Mistake:** Relying on `SameSite=Strict` alone and disabling the token.
-**Why it matters:** `SameSite` is a browser feature. Older browsers, misconfigured proxies, and certain attack vectors (e.g. subdomain takeover) can bypass it. The synchronizer token pattern works independently of browser behavior.
+**Why it matters:** `SameSite` is a browser feature. Older browsers, misconfigured proxies, and certain attack vectors (e.g. subdomain takeover) can bypass it. The double submit cookie pattern works independently of browser behavior.
 
 **Mistake:** Believing `permitAll()` disables CSRF for that endpoint.
 **Why it matters:** `permitAll()` is an authorization rule — it only removes the authentication requirement. The `CsrfFilter` runs before authorization and is unaffected.
+
+**Mistake:** Using `CsrfTokenRequestAttributeHandler` instead of `XorCsrfTokenRequestAttributeHandler`.
+**Why it matters:** The plain handler puts the raw token value in the cookie on every response. If the token is reflected anywhere in a gzip-compressed HTTPS response, an attacker who can make many requests from the victim's browser can measure response sizes and recover the token one character at a time (BREACH attack). The XOR handler masks the token with a fresh random value on every response, so the compressed output is different each time and the size comparison yields no signal. The fix is a one-word change in `SecurityConfig`. This application currently uses the plain handler — see the note in `bff/src/main/java/com/securetask/bff/config/SecurityConfig.java`.
 
 ---
 
@@ -344,23 +450,25 @@ The attacker never sees the response. They do not need to. The goal is to trigge
 
 HTML forms also cannot set arbitrary headers — only standard fields like `Content-Type` in a limited set. So a cross-origin form submission will never include `X-XSRF-TOKEN`.
 
-**Q3: What is the synchronizer token pattern? How does it defeat CSRF?**
+**Q3: What is the double submit cookie pattern? How does it defeat CSRF? How does it differ from the synchronizer token pattern?**
 
-The server generates a random, unpredictable token and gives it to the legitimate client (here: the BFF writes it via the `XSRF-TOKEN` cookie). On every state-changing request, the client must echo the token back (here: via the `X-XSRF-TOKEN` header). The BFF checks that the submitted token matches the one it issued for that session.
+The server generates a random, unpredictable token and writes it into a readable cookie (`XSRF-TOKEN`). On every state-changing request, the JavaScript client reads the cookie and echoes the value back as a custom header (`X-XSRF-TOKEN`). The server compares the cookie value against the header value — if they match, the request is allowed.
 
-An attacker cannot forge this echo because:
+An attacker cannot forge this because:
 - They cannot read the `XSRF-TOKEN` cookie from the victim's browser (same-origin policy).
 - They cannot set the `X-XSRF-TOKEN` header from a cross-origin context.
 
 The token acts as proof that the request was initiated by code running on the legitimate page.
 
-**Q4: Why does `SameSite=Strict` on the session cookie not make the CSRF token redundant?**
+**Difference from the synchronizer token pattern:** In the synchronizer token pattern the server stores the token server-side (in the session or database) and compares the submitted value against that stored copy. In the double submit cookie pattern there is no server-side storage — the cookie is both the storage and the reference value. The server only compares two things that arrived in the same request: the cookie and the header.
+
+**Q4: Why does `SameSite=Strict` on the session cookie not make the double submit cookie token redundant?**
 
 `SameSite=Strict` instructs the browser to not send the session cookie on any cross-site request. This defeats the standard CSRF attack. However:
 
 - **Browser support:** Older browsers and some non-browser HTTP clients ignore `SameSite`. A user on an outdated browser is unprotected.
 - **Subdomain attacks:** If an attacker controls a subdomain (e.g. via a subdomain takeover or XSS on a sibling subdomain), the same-site boundary may not apply depending on the browser's definition.
-- **It is a browser-level control, not a server-level control.** The server has no way to verify that the browser enforced it. The CSRF token is a server-enforced check — it works regardless of browser behavior.
+- **It is a browser-level control, not a server-level control.** The server has no way to verify that the browser enforced it. The double submit cookie token is a server-enforced check — it works regardless of browser behavior.
 
 Defence-in-depth: both protections together provide redundancy when either one fails.
 
