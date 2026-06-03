@@ -44,7 +44,10 @@ Settings → Resources → WSL Integration → toggle Ubuntu on → Apply & Rest
 
 ---
 
-## 2 — Clone inside WSL2
+## 2 — Install JDK
+sudo apt install openjdk-21-jdk-headless
+
+## 3 — Clone inside WSL2
 
 Open an Ubuntu terminal and clone into the WSL2 filesystem:
 
@@ -59,7 +62,7 @@ cd projects/sfs/SecureTask_Java
 
 ---
 
-## 3 — Start the stack
+## 4 — Start the stack
 
 ```bash
 docker compose up -d
@@ -76,7 +79,7 @@ ports to Windows `localhost` automatically.
 
 ---
 
-## 4 — Running without Docker (gradlew bootRun)
+## 5 — Running without Docker (gradlew bootRun)
 
 Follow the same steps as QUICKSTART.md — the commands are bash and run inside
 the WSL2 Ubuntu terminal unchanged.
@@ -90,7 +93,7 @@ fuser -k 8081/tcp
 
 ---
 
-## 5 — Debugging from IntelliJ IDEA
+## 6 — Debugging from IntelliJ IDEA
 
 The containers already expose JDWP debug ports:
 
@@ -114,7 +117,7 @@ The containers already expose JDWP debug ports:
 
 ---
 
-## 6 — Debugging from VS Code
+## 7 — Debugging from VS Code
 
 Add to `.vscode/launch.json`:
 
