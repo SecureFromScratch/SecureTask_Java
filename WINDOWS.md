@@ -11,9 +11,36 @@ attach a debugger over `localhost`.
 | Tool | Notes |
 |------|-------|
 | WSL2 + Ubuntu | `wsl --install` in an elevated PowerShell, then reboot |
-| Docker Desktop | Enable **Settings → Resources → WSL Integration → Ubuntu** |
+| Docker | See options below |
 | IntelliJ IDEA or VS Code | Installed on Windows as normal |
 | Git (inside WSL2) | `sudo apt install git` |
+
+### Docker: two options
+
+**Option A — Docker Engine inside WSL2 (recommended)**
+
+Free for everyone, no GUI needed:
+
+```bash
+# Inside Ubuntu (WSL2)
+curl -fsSL https://get.docker.com | sh
+sudo usermod -aG docker $USER
+# Close and reopen the terminal
+docker run hello-world   # verify
+```
+
+To start Docker automatically when you open WSL2, add this to `~/.bashrc`:
+```bash
+if ! pgrep dockerd > /dev/null; then sudo service docker start; fi
+```
+
+**Option B — Docker Desktop**
+
+Easier setup, includes a GUI. Free only for personal/educational use
+(commercial use requires a paid subscription).
+
+Download from docker.com → enable "Use WSL2 based engine" during install →
+Settings → Resources → WSL Integration → toggle Ubuntu on → Apply & Restart.
 
 ---
 
@@ -44,8 +71,8 @@ Wait for all services to be healthy:
 docker compose ps
 ```
 
-Then open **http://localhost:8081** in your Windows browser — Docker Desktop
-forwards ports from WSL2 to Windows `localhost` automatically.
+Then open **http://localhost:8081** in your Windows browser — WSL2 forwards
+ports to Windows `localhost` automatically.
 
 ---
 
@@ -141,7 +168,7 @@ If you need to free a port from PowerShell:
 Get-Process -Id (Get-NetTCPConnection -LocalPort 8080).OwningProcess | Stop-Process -Force
 ```
 
-### Docker Desktop not seeing WSL2 distro
+### Docker Desktop not seeing WSL2 distro (Option B only)
 
 Docker Desktop → Settings → Resources → WSL Integration → toggle Ubuntu on →
 Apply & Restart.
