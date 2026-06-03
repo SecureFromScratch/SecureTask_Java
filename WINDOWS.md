@@ -45,7 +45,9 @@ Settings → Resources → WSL Integration → toggle Ubuntu on → Apply & Rest
 ---
 
 ## 2 — Install JDK
+```bash
 sudo apt install openjdk-21-jdk-headless
+```
 
 ## 3 — Clone inside WSL2
 
