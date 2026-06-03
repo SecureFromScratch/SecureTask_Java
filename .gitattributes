@@ -1,0 +1,17 @@
+# Force LF line endings for files that run inside Linux containers.
+# Without this, Windows Git (core.autocrlf=true) produces CRLF files that
+# break bash scripts mounted into Docker volumes and the gradlew wrapper.
+
+* text=auto
+
+gradlew        text eol=lf
+*.sh           text eol=lf
+Dockerfile*    text eol=lf
+*.gradle       text eol=lf
+*.yml          text eol=lf
+*.yaml         text eol=lf
+*.properties   text eol=lf
+
+*.jar          binary
+*.png          binary
+*.jpg          binary
