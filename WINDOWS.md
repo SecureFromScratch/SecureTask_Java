@@ -20,34 +20,43 @@ Two paths are available. Pick the one that suits you:
 | Docker Desktop | [docker.com](https://www.docker.com/products/docker-desktop/) — Hyper-V or WSL2 engine both work |
 | PowerShell 5.1+ | Built into Windows 10/11. Allow scripts once (run as Admin): `Set-ExecutionPolicy RemoteSigned` |
 
-### 1 — Start the backing services
+### 1 — Start everything
+
+```powershell
+docker compose up -d
+docker compose ps   # wait until all services show "healthy" or "running"
+```
+
+### 2 — Open the browser
+
+**http://localhost:8082**
+
+Register an account — the first user becomes **ADMIN**.
+
+---
+
+### Alternative: run API and BFF natively (for development/debugging)
+
+Start only the backing services in Docker, then run the app and BFF as local JVM processes:
 
 ```powershell
 docker compose up -d postgres localstack
 docker compose ps   # wait until both show "healthy"
 ```
 
-### 2 — Terminal 1: start the API
-
+**Terminal 1 — API:**
 ```powershell
 .\scripts\Start-Api.ps1
 ```
-
 Ready when you see: `Started SecureTaskApplication`
 
-### 3 — Terminal 2: start the BFF
-
+**Terminal 2 — BFF:**
 ```powershell
 .\scripts\Start-Bff.ps1
 ```
-
 Ready when you see: `Tomcat started on port 8081`
 
-### 4 — Open the browser
-
-**http://localhost:8081**
-
-Register an account — the first user becomes **ADMIN**.
+Open **http://localhost:8081**
 
 ### Run tests
 
