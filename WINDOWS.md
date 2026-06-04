@@ -76,14 +76,14 @@ Get-Process -Id (Get-NetTCPConnection -LocalPort 8081).OwningProcess | Stop-Proc
 
 ### Debugging from IntelliJ IDEA / VS Code
 
-The containers expose JDWP debug ports — same as the WSL2 path below.
+The API and BFF run as normal JVM processes. To enable remote debugging, add `JAVA_TOOL_OPTIONS` before launching:
 
-| Service | Debug port |
-|---------|-----------|
-| API (`app`) | 5005 |
-| BFF (`bff`) | 5006 |
+```powershell
+$env:JAVA_TOOL_OPTIONS = "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005"
+.\scripts\Start-Api.ps1
+```
 
-Create a Remote JVM Debug configuration pointing at `localhost:5005` (or `5006`).
+Use port `5005` for the API and `5006` for the BFF, then create a Remote JVM Debug configuration pointing at `localhost:5005` (or `5006`).
 
 ### Troubleshooting
 
@@ -176,7 +176,7 @@ docker compose up -d
 docker compose ps
 ```
 
-Open **http://localhost:8081** in your Windows browser — WSL2 forwards ports automatically.
+Open **http://localhost:8082** in your Windows browser — WSL2 forwards ports automatically.
 
 ### 4 — Running without Docker (gradlew bootRun)
 
