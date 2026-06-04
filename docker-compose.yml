@@ -70,7 +70,7 @@ services:
       app:
         condition: service_started
     ports:
-      - "8081:8081"
+      - "8082:8081"
       - "5006:5006"        # JDWP debug port for BFF
     environment:
       API_BASE_URL: http://app:8080
