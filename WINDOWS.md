@@ -1,12 +1,129 @@
 # Running SecureTask on Windows
 
-The recommended approach is **WSL2**. It gives you a full Linux environment where
-`docker compose up` works identically to Linux, and your Windows IDE can still
-attach a debugger over `localhost`.
+Two paths are available. Pick the one that suits you:
+
+| | Option A — Native Windows (no WSL) | Option B — WSL2 |
+|---|---|---|
+| Docker | Docker Desktop for Windows | Docker Engine inside WSL2 **or** Docker Desktop |
+| Terminal | PowerShell | Bash (Ubuntu) |
+| Effort | Less setup | More Linux-compatible |
 
 ---
 
-## 1 — Prerequisites
+## Option A — Native Windows (No WSL)
+
+### Prerequisites
+
+| Tool | Notes |
+|------|-------|
+| Java JDK 21 | [Eclipse Temurin](https://adoptium.net/) — add `bin\` to your PATH |
+| Docker Desktop | [docker.com](https://www.docker.com/products/docker-desktop/) — Hyper-V or WSL2 engine both work |
+| PowerShell 5.1+ | Built into Windows 10/11. Allow scripts once (run as Admin): `Set-ExecutionPolicy RemoteSigned` |
+
+### 1 — Start everything
+
+```powershell
+docker compose up -d
+docker compose ps   # wait until all services show "healthy" or "running"
+```
+
+### 2 — Open the browser
+
+**http://localhost:8082**
+
+Register an account — the first user becomes **ADMIN**.
+
+---
+
+### Alternative: run API and BFF natively (for development/debugging)
+
+Start only the backing services in Docker, then run the app and BFF as local JVM processes:
+
+```powershell
+docker compose up -d postgres localstack
+docker compose ps   # wait until both show "healthy"
+```
+
+**Terminal 1 — API:**
+```powershell
+.\scripts\Start-Api.ps1
+```
+Ready when you see: `Started SecureTaskApplication`
+
+**Terminal 2 — BFF:**
+```powershell
+.\scripts\Start-Bff.ps1
+```
+Ready when you see: `Tomcat started on port 8081`
+
+Open **http://localhost:8081**
+
+### Run tests
+
+```powershell
+.\gradlew.bat :api:test
+```
+
+(Docker must be running — tests use Testcontainers for PostgreSQL.)
+
+### Stop everything
+
+```powershell
+# Stop Spring Boot apps: Ctrl+C in each terminal
+
+# Stop Docker services:
+docker compose down
+```
+
+### Ports already in use?
+
+```powershell
+# Find and kill whatever holds a port (e.g. 8080):
+Get-Process -Id (Get-NetTCPConnection -LocalPort 8080).OwningProcess | Stop-Process -Force
+Get-Process -Id (Get-NetTCPConnection -LocalPort 8081).OwningProcess | Stop-Process -Force
+```
+
+### Debugging from IntelliJ IDEA / VS Code
+
+The API and BFF run as normal JVM processes. To enable remote debugging, add `JAVA_TOOL_OPTIONS` before launching:
+
+```powershell
+$env:JAVA_TOOL_OPTIONS = "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005"
+.\scripts\Start-Api.ps1
+```
+
+Use port `5005` for the API and `5006` for the BFF, then create a Remote JVM Debug configuration pointing at `localhost:5005` (or `5006`).
+
+### Troubleshooting
+
+**`\r: command not found` in LocalStack init scripts** — Windows Git converted line endings. The `.gitattributes` in this repo enforces LF on all shell scripts. If you cloned before that was in place, fix it once:
+```powershell
+git config --global core.autocrlf false
+git rm --cached -r .
+git reset --hard
+```
+
+**`gradlew.bat` not found** — regenerate the Gradle wrapper:
+```powershell
+gradle wrapper
+```
+
+**Slow Maven/Gradle builds** — Windows Defender can hammer build caches. Exclude the project folder and `%USERPROFILE%\.gradle` from real-time scanning.
+
+**Long path errors** — enable long paths (run PowerShell as Admin):
+```powershell
+New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" `
+  -Name "LongPathsEnabled" -Value 1 -PropertyType DWORD -Force
+```
+
+---
+
+## Option B — WSL2
+
+The WSL2 path gives you a full Linux environment where `docker compose up` works
+identically to Linux, and your Windows IDE can still attach a debugger over `localhost`.
+
+### Prerequisites
 
 | Tool | Notes |
 |------|-------|
@@ -15,9 +132,9 @@ attach a debugger over `localhost`.
 | IntelliJ IDEA or VS Code | Installed on Windows as normal |
 | Git (inside WSL2) | `sudo apt install git` |
 
-### Docker: two options
+#### Docker: two options
 
-**Option A — Docker Engine inside WSL2 (recommended)**
+**Option B1 — Docker Engine inside WSL2 (recommended)**
 
 Free for everyone, no GUI needed:
 
@@ -34,7 +151,7 @@ To start Docker automatically when you open WSL2, add this to `~/.bashrc`:
 if ! pgrep dockerd > /dev/null; then sudo service docker start; fi
 ```
 
-**Option B — Docker Desktop**
+**Option B2 — Docker Desktop**
 
 Easier setup, includes a GUI. Free only for personal/educational use
 (commercial use requires a paid subscription).
@@ -42,9 +159,13 @@ Easier setup, includes a GUI. Free only for personal/educational use
 Download from docker.com → enable "Use WSL2 based engine" during install →
 Settings → Resources → WSL Integration → toggle Ubuntu on → Apply & Restart.
 
----
+### 1 — Install JDK
 
-## 2 — Clone inside WSL2
+```bash
+sudo apt install openjdk-21-jdk-headless
+```
+
+### 2 — Clone inside WSL2
 
 Open an Ubuntu terminal and clone into the WSL2 filesystem:
 
@@ -57,64 +178,33 @@ cd projects/sfs/SecureTask_Java
 > **Do not clone into `/mnt/c/...`** (the Windows drive). File watching is slow
 > there and IDE breakpoint mapping can break.
 
----
-
-## 3 — Start the stack
+### 3 — Start the stack
 
 ```bash
 docker compose up -d
-```
-
-Wait for all services to be healthy:
-
-```bash
 docker compose ps
 ```
 
-Then open **http://localhost:8081** in your Windows browser — WSL2 forwards
-ports to Windows `localhost` automatically.
+Open **http://localhost:8082** in your Windows browser — WSL2 forwards ports automatically.
 
----
+### 4 — Running without Docker (gradlew bootRun)
 
-## 4 — Running without Docker (gradlew bootRun)
-
-Follow the same steps as QUICKSTART.md — the commands are bash and run inside
-the WSL2 Ubuntu terminal unchanged.
-
-To kill a port that is already in use from within WSL2:
+Follow QUICKSTART.md — the commands are bash and run inside the WSL2 Ubuntu terminal unchanged.
 
 ```bash
-fuser -k 8080/tcp
+fuser -k 8080/tcp   # free a port if already in use
 fuser -k 8081/tcp
 ```
 
----
-
-## 5 — Debugging from IntelliJ IDEA
-
-The containers already expose JDWP debug ports:
-
-| Service | Debug port |
-|---------|-----------|
-| API (`app`) | 5005 |
-| BFF (`bff`) | 5006 |
-
-**Create a Remote JVM Debug configuration:**
+### Debugging from IntelliJ IDEA
 
 1. Run → Edit Configurations → **+** → Remote JVM Debug
-2. Set **Host** = `localhost`, **Port** = `5005` (or `5006`)
-3. Set **Use module classpath** to the `api` (or `bff`) module
-4. Click the debug button — IntelliJ connects to the running container
+2. Host = `localhost`, Port = `5005` (API) or `5006` (BFF)
+3. Use module classpath → `api` or `bff`
 
-**Opening the project in IntelliJ:**
+Open the project: File → Open → `\\wsl$\Ubuntu\home\<your-user>\projects\sfs\SecureTask_Java`
 
-- File → Open → type `\\wsl$\Ubuntu\home\<your-user>\projects\sfs\SecureTask_Java`
-- IntelliJ detects the WSL2 path and indexes sources correctly
-- Breakpoints map to the container sources automatically
-
----
-
-## 6 — Debugging from VS Code
+### Debugging from VS Code
 
 Add to `.vscode/launch.json`:
 
@@ -140,35 +230,10 @@ Add to `.vscode/launch.json`:
 }
 ```
 
-Open the project folder from inside WSL2 with `code .` (VS Code's Remote-WSL
-extension handles the rest).
+Open the project folder from inside WSL2 with `code .` (VS Code's Remote-WSL extension handles the rest).
 
----
+### Troubleshooting (WSL2)
 
-## 7 — Troubleshooting
+**`\r: command not found`** — same fix as Option A above.
 
-### `\r: command not found` in LocalStack init scripts
-
-Windows Git converted line endings to CRLF. Fix it once:
-
-```bash
-git config --global core.autocrlf false
-git rm --cached -r .
-git reset --hard
-```
-
-The `.gitattributes` in this repo enforces LF on all shell scripts for future
-clones.
-
-### Port already in use (Windows PowerShell fallback)
-
-If you need to free a port from PowerShell:
-
-```powershell
-Get-Process -Id (Get-NetTCPConnection -LocalPort 8080).OwningProcess | Stop-Process -Force
-```
-
-### Docker Desktop not seeing WSL2 distro (Option B only)
-
-Docker Desktop → Settings → Resources → WSL Integration → toggle Ubuntu on →
-Apply & Restart.
+**Docker Desktop not seeing WSL2 distro** — Docker Desktop → Settings → Resources → WSL Integration → toggle Ubuntu on → Apply & Restart.
